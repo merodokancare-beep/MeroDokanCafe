@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup />
+  <ItemGroup>
+    <Compile Update="ActivationForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="AdminAuthDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="BackupRestoreControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="CategoryControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="CustomerControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="DailySettlementControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="DashboardControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="DatabaseConfigForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="DeveloperKeyGenForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="HsnSacControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="InvoiceDetailsForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="KotManagerControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="LoginForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="MainForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="MasterMenuControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="ProductControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="ProfileSettingsControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="PurchaseControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="QRPaymentDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="ReportControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="SalesBillingControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="SalesReturnControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="SettlePaymentDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="StaffControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="StockControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="StockLedgerControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="SupplierControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="TableFloorControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="TableShiftDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="UserManagementControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="VoidKotDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+  </ItemGroup>
+</Project>

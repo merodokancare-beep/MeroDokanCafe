@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ============ ACTIVE CONFIGURATION FOR WINDOWS 7 ULTIMATE SP1 / WIN 10 / WIN 11 ============
+       Targeting .NET Framework 4.8 for universal compatibility across Windows 7 SP1, 10, and 11.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <Nullable>disable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>MeroDokanCafe</AssemblyName>
+    <RootNamespace>MeroDokan</RootNamespace>
+    <ApplicationIcon>app_icon.ico</ApplicationIcon>
+    <LangVersion>7.3</LangVersion>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+  </PropertyGroup>
+
+  <!-- Allows building on machines without the VS ".NET desktop development" workload -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="app_icon.ico" CopyToOutputDirectory="PreserveNewest" />
+    <PackageReference Include="System.Data.SqlClient" Version="4.8.6" />
+    <PackageReference Include="QRCoder" Version="1.6.0" />
+    <Reference Include="Microsoft.VisualBasic" />
+  </ItemGroup>
+
+</Project>
