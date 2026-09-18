@@ -162,20 +162,24 @@ namespace MeroDokan
 
             byte[] data = System.Text.Encoding.UTF8.GetBytes(jsonPayload);
             string currentUrl = url;
+            string method = "POST";
 
-            for (int i = 0; i < 3; i++)
+            for (int i = 0; i < 5; i++)
             {
                 HttpWebRequest request = (HttpWebRequest)WebRequest.Create(currentUrl);
-                request.Method = "POST";
-                request.ContentType = "application/json";
+                request.Method = method;
                 request.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MeroDokanClient";
                 request.Timeout = 120000;
                 request.AllowAutoRedirect = false;
-                request.ContentLength = data.Length;
 
-                using (Stream stream = request.GetRequestStream())
+                if (method == "POST")
                 {
-                    stream.Write(data, 0, data.Length);
+                    request.ContentType = "application/json";
+                    request.ContentLength = data.Length;
+                    using (Stream stream = request.GetRequestStream())
+                    {
+                        stream.Write(data, 0, data.Length);
+                    }
                 }
 
                 try
@@ -191,11 +195,8 @@ namespace MeroDokan
                             string redirectUrl = response.Headers["Location"];
                             if (!string.IsNullOrEmpty(redirectUrl))
                             {
-                                if (!redirectUrl.Contains("script.googleusercontent.com"))
-                                {
-                                    throw new Exception("Access Denied (GAS Web App Permission Mismatch). Google redirected the request to a login or error page. Please check that your Google Apps Script Web App is deployed with 'Execute as: Me' and 'Who has access: Anyone'.");
-                                }
                                 currentUrl = redirectUrl;
+                                method = "GET";
                                 continue;
                             }
                         }
@@ -219,11 +220,8 @@ namespace MeroDokan
                             string redirectUrl = errResponse.Headers["Location"];
                             if (!string.IsNullOrEmpty(redirectUrl))
                             {
-                                if (!redirectUrl.Contains("script.googleusercontent.com"))
-                                {
-                                    throw new Exception("Access Denied (GAS Web App Permission Mismatch). Google redirected the request to a login or error page. Please check that your Google Apps Script Web App is deployed with 'Execute as: Me' and 'Who has access: Anyone'.");
-                                }
                                 currentUrl = redirectUrl;
+                                method = "GET";
                                 continue;
                             }
                         }
@@ -303,11 +301,38 @@ It is recommended to schedule weekly backups. Restoring a database will complete
 
             btnBackup = new Button();
             btnBackup.Text = "💾 RUN DATABASE BACKUP";
-            btnBackup.Size = new Size(300, 45);
+            btnBackup.Size = new Size(270, 45);
             btnBackup.Location = new Point(25, 260);
             Theme.StyleSuccessButton(btnBackup);
             btnBackup.Click += BtnBackup_Click;
             maintenanceCard.Controls.Add(btnBackup);
+
+            Button btnOpenFolder = new Button();
+            btnOpenFolder.Text = "📂 Open Backup Folder";
+            btnOpenFolder.Size = new Size(200, 45);
+            btnOpenFolder.Location = new Point(310, 260);
+            Theme.StyleSecondaryButton(btnOpenFolder);
+            btnOpenFolder.Click += (s, e) =>
+            {
+                try
+                {
+                    string bDir = txtBackupPath.Text.Trim();
+                    if (!Directory.Exists(bDir))
+                    {
+                        Directory.CreateDirectory(bDir);
+                    }
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = bDir,
+                        UseShellExecute = true
+                    });
+                }
+                catch (Exception openEx)
+                {
+                    MessageBox.Show("Could not open folder: " + openEx.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            };
+            maintenanceCard.Controls.Add(btnOpenFolder);
 
             if (isAdmin)
             {
@@ -697,34 +722,10 @@ It is recommended to schedule weekly backups. Restoring a database will complete
                             {
                                 lblStatus.Text = !string.IsNullOrEmpty(automaticGdriveFile)
                                     ? "Cloud Sync: Google Drive Desktop copy placed."
-                                    : "Cloud Sync: Browser fallback triggered.";
+                                    : "Status: Database backup completed successfully!";
                                 lblStatus.ForeColor = Theme.Success;
 
-                                try
-                                {
-                                    if (string.IsNullOrEmpty(automaticGdriveFile))
-                                    {
-                                        if (!string.IsNullOrEmpty(googleDriveAddress) && (googleDriveAddress.StartsWith("http://") || googleDriveAddress.StartsWith("https://")))
-                                        {
-                                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                                            {
-                                                FileName = googleDriveAddress,
-                                                UseShellExecute = true
-                                            });
-                                        }
-
-                                        if (File.Exists(fullBackupPath))
-                                        {
-                                            System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{fullBackupPath}\"");
-                                        }
-                                    }
-                                }
-                                catch (Exception launchEx)
-                                {
-                                    Console.WriteLine("Failed to launch explorer/browser: " + launchEx.Message);
-                                }
-
-                                string successMsg = $"Database backup successfully compiled!\n\n" +
+                                string successMsg = $"Database backup successfully created!\n\n" +
                                     $"📁 Local File: {backupFileName}\n" +
                                     $"📍 Local Path: {backupDir}\n\n";
 
@@ -733,22 +734,16 @@ It is recommended to schedule weekly backups. Restoring a database will complete
                                     successMsg += $"☁️ Google Drive Desktop Auto-Save: SUCCESS!\n" +
                                         $"A copy has been saved directly inside your Google Drive synced folder:\n" +
                                         $"    {automaticGdriveFile}\n\n" +
-                                        $"Google Drive is automatically uploading this file to the cloud in the background right now! No action is required.\n";
+                                        $"Google Drive is automatically uploading this file to the cloud in the background.\n";
                                 }
                                 else
                                 {
-                                    successMsg += $"☁️ Cloud Sync (Manual Drag-and-Drop):\n" +
-                                        $"We opened your Google Drive in the browser and highlighted the local file.\n" +
-                                        $"Simply drag the highlighted '.bak' file into your browser window to upload it.\n\n" +
-                                        $"💡 Tip for 100% Automatic Upload:\n" +
-                                        $"You can deploy a Google Apps Script Web App on your Google account and paste its link in Settings to enable direct background uploading!";
+                                    successMsg += $"✅ Local backup is safely stored and ready.\n";
                                 }
-
-
 
                                 MessageBox.Show(
                                     successMsg,
-                                    "System & Cloud Sync Backup",
+                                    "Database Backup Completed",
                                     MessageBoxButtons.OK,
                                     MessageBoxIcon.Information
                                 );
@@ -1130,6 +1125,17 @@ It is recommended to schedule weekly backups. Restoring a database will complete
                                             using (SqlCommand cmd = new SqlCommand("DELETE FROM Purchases", conn, trans)) cmd.ExecuteNonQuery();
                                             using (SqlCommand cmd = new SqlCommand("DELETE FROM DailySettlements", conn, trans)) cmd.ExecuteNonQuery();
                                             using (SqlCommand cmd = new SqlCommand("DELETE FROM ProductPriceHistory", conn, trans)) cmd.ExecuteNonQuery();
+                                            using (SqlCommand cmd = new SqlCommand("DELETE FROM StockMovements", conn, trans)) cmd.ExecuteNonQuery();
+                                            using (SqlCommand cmd = new SqlCommand("DELETE FROM KOTDetails", conn, trans)) cmd.ExecuteNonQuery();
+                                            using (SqlCommand cmd = new SqlCommand("DELETE FROM KOTMaster", conn, trans)) cmd.ExecuteNonQuery();
+
+                                            // Reset all Cafe Tables to Available and remove shared sub-tables
+                                            using (SqlCommand cmd = new SqlCommand(@"
+                                                UPDATE CafeTables 
+                                                SET Status = 'Available', CurrentBillAmount = 0.00, OrderStartTime = NULL, BilledTime = NULL,
+                                                    ActiveKotNumbers = NULL, ActiveSaleId = NULL, CurrentSteward = NULL;
+                                                DELETE FROM CafeTables WHERE CHARINDEX('-', TableNumber) > 0;
+                                            ", conn, trans)) cmd.ExecuteNonQuery();
 
                                             using (SqlCommand cmd = new SqlCommand("UPDATE Products SET Stock = 0", conn, trans)) cmd.ExecuteNonQuery();
 
@@ -1139,6 +1145,12 @@ It is recommended to schedule weekly backups. Restoring a database will complete
                                             try { using (SqlCommand cmd = new SqlCommand("DBCC CHECKIDENT ('Purchases', RESEED, 0)", conn, trans)) cmd.ExecuteNonQuery(); } catch { }
                                             try { using (SqlCommand cmd = new SqlCommand("DBCC CHECKIDENT ('PurchaseDetails', RESEED, 0)", conn, trans)) cmd.ExecuteNonQuery(); } catch { }
                                             try { using (SqlCommand cmd = new SqlCommand("DBCC CHECKIDENT ('DailySettlements', RESEED, 0)", conn, trans)) cmd.ExecuteNonQuery(); } catch { }
+                                            try { using (SqlCommand cmd = new SqlCommand("DBCC CHECKIDENT ('StockMovements', RESEED, 0)", conn, trans)) cmd.ExecuteNonQuery(); } catch { }
+                                            try { using (SqlCommand cmd = new SqlCommand("DBCC CHECKIDENT ('KOTDetails', RESEED, 0)", conn, trans)) cmd.ExecuteNonQuery(); } catch { }
+                                            try { using (SqlCommand cmd = new SqlCommand("DBCC CHECKIDENT ('KOTMaster', RESEED, 0)", conn, trans)) cmd.ExecuteNonQuery(); } catch { }
+                                            try { using (SqlCommand cmd = new SqlCommand("DBCC CHECKIDENT ('SalesReturns', RESEED, 0)", conn, trans)) cmd.ExecuteNonQuery(); } catch { }
+                                            try { using (SqlCommand cmd = new SqlCommand("DBCC CHECKIDENT ('SalesReturnDetails', RESEED, 0)", conn, trans)) cmd.ExecuteNonQuery(); } catch { }
+                                            try { using (SqlCommand cmd = new SqlCommand("DBCC CHECKIDENT ('CustomerPayments', RESEED, 0)", conn, trans)) cmd.ExecuteNonQuery(); } catch { }
 
                                             trans.Commit();
                                         }

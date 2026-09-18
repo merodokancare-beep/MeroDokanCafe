@@ -12,3 +12,6 @@ D:\Bhawani Works\Project All\MeroDokanCafe\bin\Debug\net48\System.Data.SqlClient
 D:\Bhawani Works\Project All\MeroDokanCafe\obj\Debug\net48\MeroDoka.971D2432.Up2Date
 D:\Bhawani Works\Project All\MeroDokanCafe\obj\Debug\net48\MeroDokanCafe.exe
 D:\Bhawani Works\Project All\MeroDokanCafe\obj\Debug\net48\MeroDokanCafe.pdb
+D:\Bhawani Works\Project All\MeroDokanCafe\obj\Debug\net48\MeroDokanCafe.sourcelink.json
+D:\Bhawani Works\Project All\MeroDokanCafe\bin\Debug\net48\Assets\logo.jpg
+D:\Bhawani Works\Project All\MeroDokanCafe\bin\Debug\net48\Assets\logo_transparent.png

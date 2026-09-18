@@ -95,9 +95,11 @@ namespace MeroDokan
 
                     // Get grand total and details
                     string totalQuery = @"
-                        SELECT GrandTotal, Discount, Tax, SubTotal, AmountPaid, PaymentMethod,
-                               ISNULL(CashAmount, 0) AS CashAmount,
-                               ISNULL(OnlineAmount, 0) AS OnlineAmount,
+                        SELECT GrandTotal, Discount, Tax, SubTotal, 
+                               CASE WHEN AmountPaid > GrandTotal THEN GrandTotal ELSE AmountPaid END AS AmountPaid, 
+                               PaymentMethod,
+                               CASE WHEN ISNULL(CashAmount, 0) > GrandTotal THEN GrandTotal ELSE ISNULL(CashAmount, 0) END AS CashAmount,
+                               CASE WHEN ISNULL(OnlineAmount, 0) > GrandTotal THEN GrandTotal ELSE ISNULL(OnlineAmount, 0) END AS OnlineAmount,
                                ISNULL(IsGSTBill, 1) AS IsGSTBill,
                                ISNULL(TaxableAmount, 0) AS TaxableAmount,
                                ISNULL(CGSTAmount, 0) AS CGSTAmount,

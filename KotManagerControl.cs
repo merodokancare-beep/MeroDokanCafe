@@ -19,13 +19,41 @@ namespace MeroDokan
         private Button btnTabHistory;
         private System.Windows.Forms.Timer refreshTimer;
         private Button btnRefresh;
+        private Button btnClearHistory;
         private Label lblActiveCount;
 
         private int currentTabIndex = 0; // 0 = Live, 1 = History
 
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.ExStyle |= 0x02000000; // WS_EX_COMPOSITED: Double-buffers all child controls
+                return cp;
+            }
+        }
+
+        private static void SetDoubleBuffered(Control c)
+        {
+            if (c == null) return;
+            try
+            {
+                typeof(Control).InvokeMember("DoubleBuffered",
+                    System.Reflection.BindingFlags.SetProperty |
+                    System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.NonPublic,
+                    null, c, new object[] { true });
+            }
+            catch { }
+        }
+
         public KotManagerControl()
         {
             InitializeComponent();
+            SetDoubleBuffered(this);
+            SetDoubleBuffered(contentHostPanel);
+            SetDoubleBuffered(kdsCardsPanel);
             LoadActiveKdsCards();
 
             refreshTimer = new System.Windows.Forms.Timer();
@@ -34,6 +62,20 @@ namespace MeroDokan
                 if (currentTabIndex == 0) LoadActiveKdsCards();
             };
             refreshTimer.Start();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                if (refreshTimer != null)
+                {
+                    refreshTimer.Stop();
+                    refreshTimer.Dispose();
+                    refreshTimer = null;
+                }
+            }
+            base.Dispose(disposing);
         }
 
         private void InitializeComponent()
@@ -111,6 +153,24 @@ namespace MeroDokan
                 else LoadKotHistory();
             };
             rightActionsFlow.Controls.Add(btnRefresh);
+
+            btnClearHistory = new Button
+            {
+                Text = "🗑️ Clear History Logs",
+                AutoSize = true,
+                Height = 36,
+                Padding = new Padding(12, 0, 12, 0),
+                BackColor = Theme.Danger,
+                ForeColor = Color.White,
+                Font = Theme.BoldFont,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                Margin = new Padding(6, 0, 0, 0),
+                Visible = false
+            };
+            btnClearHistory.FlatAppearance.BorderSize = 0;
+            btnClearHistory.Click += (s, e) => ClearKotHistory();
+            rightActionsFlow.Controls.Add(btnClearHistory);
 
             lblActiveCount = new Label
             {
@@ -202,6 +262,7 @@ namespace MeroDokan
             currentTabIndex = tabIndex;
             UpdateTabStyle(btnTabLive, currentTabIndex == 0);
             UpdateTabStyle(btnTabHistory, currentTabIndex == 1);
+            if (btnClearHistory != null) btnClearHistory.Visible = (currentTabIndex == 1);
 
             if (currentTabIndex == 0)
             {
@@ -639,6 +700,73 @@ namespace MeroDokan
                 }
             }
             catch { }
+        }
+
+        private void ClearKotHistory()
+        {
+            var res = MessageBox.Show(
+                "Are you sure you want to permanently delete all billed, voided, and completed KOT history logs?\n\nActive live kitchen tickets will not be affected.",
+                "Confirm Clear KOT History",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning
+            );
+
+            if (res != DialogResult.Yes) return;
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
+                {
+                    conn.Open();
+                    using (SqlTransaction trans = conn.BeginTransaction())
+                    {
+                        try
+                        {
+                            string delDetails = @"
+                                DELETE FROM KOTDetails 
+                                WHERE KOTId IN (SELECT Id FROM KOTMaster WHERE Status IN ('Billed', 'Voided') OR SaleId IS NOT NULL)";
+                            using (SqlCommand cmd = new SqlCommand(delDetails, conn, trans))
+                            {
+                                cmd.ExecuteNonQuery();
+                            }
+
+                            string delMaster = @"
+                                DELETE FROM KOTMaster 
+                                WHERE Status IN ('Billed', 'Voided') OR SaleId IS NOT NULL";
+                            using (SqlCommand cmd = new SqlCommand(delMaster, conn, trans))
+                            {
+                                cmd.ExecuteNonQuery();
+                            }
+
+                            // If no KOTs remain at all, reseed counter back to 0
+                            using (SqlCommand cmd = new SqlCommand(@"
+                                IF NOT EXISTS (SELECT 1 FROM KOTMaster)
+                                BEGIN
+                                    DBCC CHECKIDENT ('KOTMaster', RESEED, 0);
+                                    DBCC CHECKIDENT ('KOTDetails', RESEED, 0);
+                                END
+                            ", conn, trans))
+                            {
+                                cmd.ExecuteNonQuery();
+                            }
+
+                            trans.Commit();
+                        }
+                        catch
+                        {
+                            trans.Rollback();
+                            throw;
+                        }
+                    }
+                }
+
+                MessageBox.Show("All settled KOT history logs have been cleared successfully.", "History Cleared", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                LoadKotHistory();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to clear KOT history: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
     }
 }

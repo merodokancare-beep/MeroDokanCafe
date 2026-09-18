@@ -15,6 +15,7 @@ namespace MeroDokan
         private FlowLayoutPanel tableGridPanel;
         private Panel bottomLegendPanel;
         private System.Windows.Forms.Timer refreshTimer;
+        private System.Windows.Forms.Timer liveClockTimer;
 
         private Button btnModeDining;
         private Button btnModeTakeaway;
@@ -28,18 +29,91 @@ namespace MeroDokan
         private Button btnRefresh;
 
         private string currentFilterMode = "DINING";
+        private readonly Dictionary<string, TableCardView> activeCardViews = new Dictionary<string, TableCardView>(StringComparer.OrdinalIgnoreCase);
 
         public event Action<string, string> OnTableSelected; // tableNumber, orderType
 
-        public TableFloorControl()
+        protected override CreateParams CreateParams
         {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.ExStyle |= 0x02000000; // WS_EX_COMPOSITED: Paints all descendants from bottom to top using double-buffering (eliminates WinForms redraw flicker)
+                return cp;
+            }
+        }
+
+        private static void SetDoubleBuffered(Control c)
+        {
+            if (c == null) return;
+            try
+            {
+                typeof(Control).InvokeMember("DoubleBuffered",
+                    System.Reflection.BindingFlags.SetProperty |
+                    System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.NonPublic,
+                    null, c, new object[] { true });
+            }
+            catch { }
+        }
+
+        public TableFloorControl(string initialMode = "DINING")
+        {
+            currentFilterMode = string.IsNullOrEmpty(initialMode) ? "DINING" : initialMode;
             InitializeComponent();
+            SetDoubleBuffered(this);
+            SetDoubleBuffered(tableGridPanel);
+
             LoadTableCards();
 
+            // 1. Live second-by-second timer for active table timestamps (100% in-memory, ZERO database load, ZERO flicker/blinking)
+            liveClockTimer = new System.Windows.Forms.Timer();
+            liveClockTimer.Interval = 1000;
+            liveClockTimer.Tick += (s, e) => UpdateLiveTimersOnly();
+            liveClockTimer.Start();
+
+            // 2. Periodic background database status refresh (every 4 seconds, updates in-place without rebuilding controls)
             refreshTimer = new System.Windows.Forms.Timer();
-            refreshTimer.Interval = 5000; // Refresh every 5 seconds for live timers and states
+            refreshTimer.Interval = 4000;
             refreshTimer.Tick += (s, e) => LoadTableCards();
             refreshTimer.Start();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                if (liveClockTimer != null)
+                {
+                    liveClockTimer.Stop();
+                    liveClockTimer.Dispose();
+                    liveClockTimer = null;
+                }
+                if (refreshTimer != null)
+                {
+                    refreshTimer.Stop();
+                    refreshTimer.Dispose();
+                    refreshTimer = null;
+                }
+            }
+            base.Dispose(disposing);
+        }
+
+        public void SwitchMode(string mode)
+        {
+            currentFilterMode = string.IsNullOrEmpty(mode) ? "DINING" : mode;
+            if (modeTabsPanel != null)
+            {
+                foreach (Control c in modeTabsPanel.Controls)
+                {
+                    if (c is Button b) UpdateTabStyle(b, b.Tag?.ToString() == currentFilterMode);
+                }
+            }
+            if (btnTableShift != null) btnTableShift.Visible = (currentFilterMode == "DINING");
+            if (btnShareTable != null) btnShareTable.Visible = (currentFilterMode == "DINING");
+            
+            activeCardViews.Clear();
+            LoadTableCards();
         }
 
         private void InitializeComponent()
@@ -78,10 +152,10 @@ namespace MeroDokan
                 BackColor = Color.Transparent
             };
 
-            btnModeDining = CreateModeTabButton("🍽️ DINING", "DINING", true);
-            btnModeTakeaway = CreateModeTabButton("🛍️ TAKE AWAY", "TAKEAWAY", false);
-            btnModeDelivery = CreateModeTabButton("🛵 DELIVERY", "DELIVERY", false);
-            btnModeWaiting = CreateModeTabButton("⏳ WAITING", "WAITING", false);
+            btnModeDining = CreateModeTabButton("🍽️ DINING", "DINING", currentFilterMode == "DINING");
+            btnModeTakeaway = CreateModeTabButton("🛍️ TAKE AWAY", "TAKEAWAY", currentFilterMode == "TAKEAWAY");
+            btnModeDelivery = CreateModeTabButton("🛵 DELIVERY", "DELIVERY", currentFilterMode == "DELIVERY");
+            btnModeWaiting = CreateModeTabButton("⏳ WAITING", "WAITING", currentFilterMode == "WAITING");
 
             modeTabsPanel.Controls.Add(btnModeDining);
             modeTabsPanel.Controls.Add(btnModeTakeaway);
@@ -226,23 +300,20 @@ namespace MeroDokan
 
             foreach (Control c in tableGridPanel.Controls)
             {
-                if (c is Panel card)
+                if (c is Panel card && card.Tag is TableCardView view)
                 {
                     card.Size = new Size(cardW, cardH);
-                    foreach (Control child in card.Controls)
+                    if (view.LblNumber != null)
                     {
-                        if (child is Label lbl && lbl.Font.Size >= 15F) // Table number
-                        {
-                            lbl.Size = new Size(cardW - 110, 55);
-                        }
-                        else if (child is Panel rBox) // Timer / amount box
-                        {
-                            rBox.Location = new Point(cardW - 95, 12);
-                        }
-                        else if (child is Label lblA && lblA.Text == "Available")
-                        {
-                            lblA.Location = new Point(14, cardH - 35);
-                        }
+                        view.LblNumber.Size = new Size(cardW - 110, view.TableNumber.Contains("-") ? 38 : 55);
+                    }
+                    if (view.RightBox != null)
+                    {
+                        view.RightBox.Location = new Point(cardW - 95, 12);
+                    }
+                    if (view.LblAvail != null)
+                    {
+                        view.LblAvail.Location = new Point(14, cardH - 35);
                     }
                     card.Invalidate();
                 }
@@ -267,14 +338,7 @@ namespace MeroDokan
             };
             btn.FlatAppearance.BorderSize = 0;
             UpdateTabStyle(btn, isActive);
-            btn.Click += (s, e) => {
-                currentFilterMode = mode;
-                foreach (Control c in modeTabsPanel.Controls)
-                {
-                    if (c is Button b) UpdateTabStyle(b, b.Tag?.ToString() == mode);
-                }
-                LoadTableCards();
-            };
+            btn.Click += (s, e) => SwitchMode(mode);
             return btn;
         }
 
@@ -364,9 +428,6 @@ namespace MeroDokan
                 if (lblUnsettled != null) lblUnsettled.Text = $"Unsettled: ₹{unsettledSales:N1}";
 
                 // Load Tables
-                tableGridPanel.SuspendLayout();
-                tableGridPanel.Controls.Clear();
-
                 int availW = tableGridPanel.ClientSize.Width - tableGridPanel.Padding.Horizontal - 25;
                 if (availW < 200) availW = 400;
                 int cols = Math.Max(2, Math.Min(6, availW / 215));
@@ -379,13 +440,31 @@ namespace MeroDokan
                 {
                     conn.Open();
 
-                    // 1. Fetch live active KOT data mapped by TableNumber
+                    // 1. Fetch live active KOT data mapped by TableNumber strictly for the active tab mode
                     Dictionary<string, LiveKotData> liveKotMap = new Dictionary<string, LiveKotData>(StringComparer.OrdinalIgnoreCase);
+                    string kotWhere = "";
+                    if (currentFilterMode == "DINING")
+                    {
+                        kotWhere = " AND (k.OrderType = 'DINING' OR k.OrderType IS NULL OR k.OrderType = '') AND k.TableNumber NOT LIKE 'Waiting%'";
+                    }
+                    else if (currentFilterMode == "TAKEAWAY")
+                    {
+                        kotWhere = " AND k.OrderType = 'TAKEAWAY'";
+                    }
+                    else if (currentFilterMode == "DELIVERY")
+                    {
+                        kotWhere = " AND k.OrderType = 'DELIVERY'";
+                    }
+                    else if (currentFilterMode == "WAITING")
+                    {
+                        kotWhere = " AND k.TableNumber LIKE 'Waiting%'";
+                    }
+
                     string kotQuery = @"
                         SELECT k.TableNumber, k.KOTNumber, k.CreatedAt, k.Steward, kd.Amount
                         FROM KOTMaster k
                         INNER JOIN KOTDetails kd ON k.Id = kd.KOTId
-                        WHERE k.Status IN ('Active', 'Served', 'Printed') AND kd.IsVoided = 0";
+                        WHERE k.Status IN ('Active', 'Served', 'Printed') AND kd.IsVoided = 0" + kotWhere;
 
                     using (SqlCommand cmd = new SqlCommand(kotQuery, conn))
                     using (SqlDataReader r = cmd.ExecuteReader())
@@ -411,28 +490,121 @@ namespace MeroDokan
                         }
                     }
 
-                    // 2. Fetch all active tables from CafeTables
-                    string query = @"
-                        SELECT TableNumber, TableName, Status, CurrentBillAmount, 
-                               OrderStartTime, BilledTime, ActiveKotNumbers, CurrentSteward
-                        FROM CafeTables 
-                        WHERE IsActive = 1";
-
-                    using (SqlCommand cmd = new SqlCommand(query, conn))
-                    using (SqlDataReader r = cmd.ExecuteReader())
+                    // 2. Fetch or generate tables based on currentFilterMode
+                    if (currentFilterMode == "DINING")
                     {
-                        while (r.Read())
-                        {
-                            string tNum = r["TableNumber"].ToString();
-                            string tName = r["TableName"]?.ToString() ?? tNum;
-                            string status = r["Status"]?.ToString() ?? "Available";
-                            decimal amount = r["CurrentBillAmount"] != DBNull.Value ? Convert.ToDecimal(r["CurrentBillAmount"]) : 0;
-                            object startTimeObj = r["OrderStartTime"];
-                            object billedTimeObj = r["BilledTime"];
-                            string kots = r["ActiveKotNumbers"]?.ToString() ?? "";
-                            string steward = r["CurrentSteward"]?.ToString() ?? "";
+                        string query = @"
+                            SELECT TableNumber, TableName, Status, CurrentBillAmount, 
+                                   OrderStartTime, BilledTime, ActiveKotNumbers, CurrentSteward
+                            FROM CafeTables 
+                            WHERE IsActive = 1 AND TableNumber NOT LIKE 'Waiting%'";
 
-                            // If live KOTs exist for this table, reflect live data
+                        using (SqlCommand cmd = new SqlCommand(query, conn))
+                        using (SqlDataReader r = cmd.ExecuteReader())
+                        {
+                            while (r.Read())
+                            {
+                                string tNum = r["TableNumber"].ToString();
+                                string tName = r["TableName"]?.ToString() ?? tNum;
+                                string status = "Available";
+                                decimal amount = 0;
+                                object startTimeObj = DBNull.Value;
+                                object billedTimeObj = r["BilledTime"];
+                                string kots = "";
+                                string steward = r["CurrentSteward"]?.ToString() ?? "";
+
+                                if (liveKotMap.TryGetValue(tNum, out LiveKotData live))
+                                {
+                                    status = "Running";
+                                    amount = live.TotalAmount;
+                                    startTimeObj = live.EarliestTime;
+                                    live.KotNumbers.Sort();
+                                    kots = string.Join(",", live.KotNumbers);
+                                    if (!string.IsNullOrEmpty(live.Steward)) steward = live.Steward;
+                                }
+
+                                tableList.Add(new TableCardData
+                                {
+                                    TableNumber = tNum,
+                                    TableName = tName,
+                                    Status = status,
+                                    Amount = amount,
+                                    StartTime = startTimeObj,
+                                    BilledTime = billedTimeObj,
+                                    Kots = kots,
+                                    Steward = steward
+                                });
+                            }
+                        }
+                    }
+                    else if (currentFilterMode == "WAITING")
+                    {
+                        string query = @"
+                            SELECT TableNumber, TableName, Status, CurrentBillAmount, 
+                                   OrderStartTime, BilledTime, ActiveKotNumbers, CurrentSteward
+                            FROM CafeTables 
+                            WHERE IsActive = 1 AND TableNumber LIKE 'Waiting%'";
+
+                        using (SqlCommand cmd = new SqlCommand(query, conn))
+                        using (SqlDataReader r = cmd.ExecuteReader())
+                        {
+                            while (r.Read())
+                            {
+                                string tNum = r["TableNumber"].ToString();
+                                string tName = r["TableName"]?.ToString() ?? tNum;
+                                string status = "Available";
+                                decimal amount = 0;
+                                object startTimeObj = DBNull.Value;
+                                object billedTimeObj = r["BilledTime"];
+                                string kots = "";
+                                string steward = r["CurrentSteward"]?.ToString() ?? "";
+
+                                if (liveKotMap.TryGetValue(tNum, out LiveKotData live))
+                                {
+                                    status = "Running";
+                                    amount = live.TotalAmount;
+                                    startTimeObj = live.EarliestTime;
+                                    live.KotNumbers.Sort();
+                                    kots = string.Join(",", live.KotNumbers);
+                                    if (!string.IsNullOrEmpty(live.Steward)) steward = live.Steward;
+                                }
+
+                                tableList.Add(new TableCardData
+                                {
+                                    TableNumber = tNum,
+                                    TableName = tName,
+                                    Status = status,
+                                    Amount = amount,
+                                    StartTime = startTimeObj,
+                                    BilledTime = billedTimeObj,
+                                    Kots = kots,
+                                    Steward = steward
+                                });
+                            }
+                        }
+                    }
+                    else if (currentFilterMode == "TAKEAWAY")
+                    {
+                        HashSet<int> tokenNums = new HashSet<int>();
+                        for (int i = 1; i <= 10; i++) tokenNums.Add(i);
+                        foreach (string k in liveKotMap.Keys)
+                        {
+                            if (int.TryParse(k, out int n)) tokenNums.Add(n);
+                        }
+
+                        List<int> sortedTokens = new List<int>(tokenNums);
+                        sortedTokens.Sort();
+
+                        foreach (int n in sortedTokens)
+                        {
+                            string tNum = n.ToString();
+                            string tName = "Token " + tNum;
+                            string status = "Available";
+                            decimal amount = 0;
+                            object startTimeObj = DBNull.Value;
+                            string kots = "";
+                            string steward = "";
+
                             if (liveKotMap.TryGetValue(tNum, out LiveKotData live))
                             {
                                 status = "Running";
@@ -442,9 +614,50 @@ namespace MeroDokan
                                 kots = string.Join(",", live.KotNumbers);
                                 if (!string.IsNullOrEmpty(live.Steward)) steward = live.Steward;
                             }
-                            else if (status == "Running" && amount == 0)
+
+                            tableList.Add(new TableCardData
                             {
-                                status = "Available";
+                                TableNumber = tNum,
+                                TableName = tName,
+                                Status = status,
+                                Amount = amount,
+                                StartTime = startTimeObj,
+                                BilledTime = DBNull.Value,
+                                Kots = kots,
+                                Steward = steward
+                            });
+                        }
+                    }
+                    else if (currentFilterMode == "DELIVERY")
+                    {
+                        HashSet<int> deliveryNums = new HashSet<int>();
+                        for (int i = 1; i <= 10; i++) deliveryNums.Add(i);
+                        foreach (string k in liveKotMap.Keys)
+                        {
+                            if (int.TryParse(k, out int n)) deliveryNums.Add(n);
+                        }
+
+                        List<int> sortedDeliveries = new List<int>(deliveryNums);
+                        sortedDeliveries.Sort();
+
+                        foreach (int n in sortedDeliveries)
+                        {
+                            string tNum = n.ToString();
+                            string tName = "Delivery " + tNum;
+                            string status = "Available";
+                            decimal amount = 0;
+                            object startTimeObj = DBNull.Value;
+                            string kots = "";
+                            string steward = "";
+
+                            if (liveKotMap.TryGetValue(tNum, out LiveKotData live))
+                            {
+                                status = "Running";
+                                amount = live.TotalAmount;
+                                startTimeObj = live.EarliestTime;
+                                live.KotNumbers.Sort();
+                                kots = string.Join(",", live.KotNumbers);
+                                if (!string.IsNullOrEmpty(live.Steward)) steward = live.Steward;
                             }
 
                             tableList.Add(new TableCardData
@@ -454,7 +667,7 @@ namespace MeroDokan
                                 Status = status,
                                 Amount = amount,
                                 StartTime = startTimeObj,
-                                BilledTime = billedTimeObj,
+                                BilledTime = DBNull.Value,
                                 Kots = kots,
                                 Steward = steward
                             });
@@ -465,23 +678,162 @@ namespace MeroDokan
                 // 3. Sort tables naturally (1, 2, 3, 4-A, 4-B, 5, 6... 10)
                 tableList.Sort((a, b) => TableHelper.CompareTableNumbers(a.TableNumber, b.TableNumber));
 
-                foreach (var t in tableList)
+                // 4. CHECK IF STRUCTURE MATCHES TO UPDATE IN-PLACE (ZERO FLICKER / ZERO BLINK)
+                bool canUpdateInPlace = (tableGridPanel.Controls.Count == tableList.Count && activeCardViews.Count == tableList.Count);
+                if (canUpdateInPlace)
                 {
-                    // Filter logic
-                    bool isWaiting = t.TableNumber.StartsWith("Waiting", StringComparison.OrdinalIgnoreCase);
-                    if (currentFilterMode == "WAITING" && !isWaiting) continue;
-                    if (currentFilterMode == "DINING" && isWaiting) continue;
-
-                    Control card = CreateTableCard(t.TableNumber, t.TableName, t.Status, t.Amount, t.StartTime, t.BilledTime, t.Kots, t.Steward, cardW, cardH);
-                    tableGridPanel.Controls.Add(card);
+                    for (int i = 0; i < tableList.Count; i++)
+                    {
+                        if (tableGridPanel.Controls[i].Tag is TableCardView view &&
+                            string.Equals(view.TableNumber, tableList[i].TableNumber, StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Matches
+                        }
+                        else
+                        {
+                            canUpdateInPlace = false;
+                            break;
+                        }
+                    }
                 }
 
-                tableGridPanel.ResumeLayout();
+                if (canUpdateInPlace)
+                {
+                    // Perfectly matches! Update existing cards in-place without touching Controls collection!
+                    for (int i = 0; i < tableList.Count; i++)
+                    {
+                        var t = tableList[i];
+                        if (activeCardViews.TryGetValue(t.TableNumber, out TableCardView view))
+                        {
+                            UpdateExistingCard(view, t);
+                        }
+                    }
+                }
+                else
+                {
+                    // Structure changed (mode switch or sub-table added/removed): rebuild cards cleanly
+                    tableGridPanel.SuspendLayout();
+                    activeCardViews.Clear();
+                    tableGridPanel.Controls.Clear();
+
+                    foreach (var t in tableList)
+                    {
+                        Control card = CreateTableCard(t, cardW, cardH);
+                        tableGridPanel.Controls.Add(card);
+                    }
+
+                    tableGridPanel.ResumeLayout();
+                }
+
+                MainForm.Instance?.RefreshLiveOrderCounts();
             }
             catch
             {
                 tableGridPanel.ResumeLayout();
                 // Avoid popup spamming in timer
+            }
+        }
+
+        private void UpdateLiveTimersOnly()
+        {
+            foreach (var kvp in activeCardViews)
+            {
+                var view = kvp.Value;
+                if (view.CurrentStatus == "Running" || view.CurrentStatus == "Printed")
+                {
+                    var t = view.LastData;
+                    if (t == null) continue;
+
+                    string elapsedStr = "";
+                    if (view.CurrentStatus == "Running" && t.StartTime != DBNull.Value && t.StartTime != null)
+                    {
+                        TimeSpan span = DateTime.Now - Convert.ToDateTime(t.StartTime);
+                        elapsedStr = $"⏱️ {(int)span.TotalMinutes}:{span.Seconds:D2}";
+                    }
+                    else if (view.CurrentStatus == "Printed")
+                    {
+                        DateTime refTime = (t.BilledTime != DBNull.Value && t.BilledTime != null)
+                            ? Convert.ToDateTime(t.BilledTime)
+                            : (t.StartTime != DBNull.Value && t.StartTime != null ? Convert.ToDateTime(t.StartTime) : DateTime.Now);
+                        TimeSpan span = DateTime.Now - refTime;
+                        elapsedStr = $"⏱️ {(int)span.TotalMinutes}:{span.Seconds:D2}";
+                    }
+
+                    if (view.LblTimer != null && view.LblTimer.Text != elapsedStr)
+                    {
+                        view.LblTimer.Text = elapsedStr;
+                    }
+                }
+            }
+        }
+
+        private void UpdateExistingCard(TableCardView view, TableCardData t)
+        {
+            view.LastData = t;
+
+            // Check if status changed
+            if (view.CurrentStatus != t.Status)
+            {
+                view.CurrentStatus = t.Status;
+                if (t.Status == "Running")
+                {
+                    view.CardPanel.BackColor = Color.FromArgb(67, 56, 202);
+                    view.BorderColor = Color.FromArgb(129, 140, 248);
+                    if (view.LblAvail != null) view.LblAvail.Visible = false;
+                    if (view.RightBox != null) view.RightBox.Visible = true;
+                }
+                else if (t.Status == "Printed")
+                {
+                    view.CardPanel.BackColor = Color.FromArgb(14, 116, 144);
+                    view.BorderColor = Color.FromArgb(56, 189, 248);
+                    if (view.LblAvail != null) view.LblAvail.Visible = false;
+                    if (view.RightBox != null) view.RightBox.Visible = true;
+                }
+                else
+                {
+                    view.CardPanel.BackColor = Color.FromArgb(30, 41, 59);
+                    view.BorderColor = Color.FromArgb(51, 65, 85);
+                    if (view.LblAvail != null) view.LblAvail.Visible = true;
+                    if (view.RightBox != null) view.RightBox.Visible = false;
+                }
+                view.CardPanel.Invalidate();
+            }
+
+            // Update Amount, KOT, and Timer
+            if (t.Status == "Running" || t.Status == "Printed")
+            {
+                string amtText = $"₹{t.Amount:0}";
+                if (view.LblAmount != null && view.LblAmount.Text != amtText)
+                {
+                    view.LblAmount.Text = amtText;
+                }
+
+                string kotText = !string.IsNullOrEmpty(t.Kots) ? $"KOT: {t.Kots}" : "";
+                if (view.LblKot != null)
+                {
+                    if (view.LblKot.Text != kotText) view.LblKot.Text = kotText;
+                    view.LblKot.Visible = !string.IsNullOrEmpty(kotText);
+                }
+
+                string elapsedStr = "";
+                if (t.Status == "Running" && t.StartTime != DBNull.Value && t.StartTime != null)
+                {
+                    TimeSpan span = DateTime.Now - Convert.ToDateTime(t.StartTime);
+                    elapsedStr = $"⏱️ {(int)span.TotalMinutes}:{span.Seconds:D2}";
+                }
+                else if (t.Status == "Printed")
+                {
+                    DateTime refTime = (t.BilledTime != DBNull.Value && t.BilledTime != null)
+                        ? Convert.ToDateTime(t.BilledTime)
+                        : (t.StartTime != DBNull.Value && t.StartTime != null ? Convert.ToDateTime(t.StartTime) : DateTime.Now);
+                    TimeSpan span = DateTime.Now - refTime;
+                    elapsedStr = $"⏱️ {(int)span.TotalMinutes}:{span.Seconds:D2}";
+                }
+
+                if (view.LblTimer != null && view.LblTimer.Text != elapsedStr)
+                {
+                    view.LblTimer.Text = elapsedStr;
+                }
             }
         }
 
@@ -506,48 +858,79 @@ namespace MeroDokan
             public string Steward { get; set; }
         }
 
-        private Control CreateTableCard(string tableNum, string tableName, string status, decimal amount, object startTimeObj, object billedTimeObj, string kots, string steward, int cardW = 210, int cardH = 125)
+        private class TableCardView
         {
+            public string TableNumber { get; set; }
+            public Panel CardPanel { get; set; }
+            public Label LblNumber { get; set; }
+            public Label LblSub { get; set; }
+            public Label LblAvail { get; set; }
+            public Panel RightBox { get; set; }
+            public Label LblTimer { get; set; }
+            public Label LblAmount { get; set; }
+            public Label LblKot { get; set; }
+            public Color BorderColor { get; set; }
+            public string CurrentStatus { get; set; }
+            public TableCardData LastData { get; set; }
+        }
+
+        private Control CreateTableCard(TableCardData t, int cardW = 210, int cardH = 125)
+        {
+            string tableNum = t.TableNumber;
+            string status = t.Status;
+            decimal amount = t.Amount;
+            object startTimeObj = t.StartTime;
+            object billedTimeObj = t.BilledTime;
+            string kots = t.Kots;
+
             Panel card = new Panel
             {
                 Size = new Size(cardW, cardH),
                 Margin = new Padding(8),
-                Cursor = Cursors.Hand,
-                Tag = tableNum
+                Cursor = Cursors.Hand
+            };
+            SetDoubleBuffered(card);
+
+            TableCardView view = new TableCardView
+            {
+                TableNumber = tableNum,
+                CardPanel = card,
+                CurrentStatus = status,
+                LastData = t
             };
 
-            // Color Schemes based on screenshot
-            // Available: Soft Slate/White background with subtle borders
-            // Running: Soft Violet background (#6366f1 / #4f46e5) with timer
-            // Printed: Soft Teal/Cyan background (#06b6d4 / #0891b2) with timer
             Color cardBg = Color.FromArgb(30, 41, 59);      // Default Available
             Color cardBorder = Color.FromArgb(51, 65, 85);
             Color textMain = Color.White;
 
             string elapsedStr = "";
-            if (status == "Running" && startTimeObj != DBNull.Value)
+            if (status == "Running" && startTimeObj != DBNull.Value && startTimeObj != null)
             {
                 cardBg = Color.FromArgb(67, 56, 202); // Deep Indigo/Violet
                 cardBorder = Color.FromArgb(129, 140, 248);
                 TimeSpan span = DateTime.Now - Convert.ToDateTime(startTimeObj);
                 elapsedStr = $"⏱️ {(int)span.TotalMinutes}:{span.Seconds:D2}";
             }
-            else if (status == "Printed" && (billedTimeObj != DBNull.Value || startTimeObj != DBNull.Value))
+            else if (status == "Printed")
             {
                 cardBg = Color.FromArgb(14, 116, 144); // Deep Cyan
                 cardBorder = Color.FromArgb(56, 189, 248);
-                DateTime refTime = billedTimeObj != DBNull.Value ? Convert.ToDateTime(billedTimeObj) : Convert.ToDateTime(startTimeObj);
+                DateTime refTime = (billedTimeObj != DBNull.Value && billedTimeObj != null)
+                    ? Convert.ToDateTime(billedTimeObj)
+                    : (startTimeObj != DBNull.Value && startTimeObj != null ? Convert.ToDateTime(startTimeObj) : DateTime.Now);
                 TimeSpan span = DateTime.Now - refTime;
                 elapsedStr = $"⏱️ {(int)span.TotalMinutes}:{span.Seconds:D2}";
             }
 
+            view.BorderColor = cardBorder;
             card.BackColor = cardBg;
 
             // Paint Card Border and Rounded styling
             card.Paint += (s, e) => {
                 e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                Color bColor = (card.Tag is TableCardView cv) ? cv.BorderColor : Color.FromArgb(51, 65, 85);
                 using (GraphicsPath path = Theme.GetRoundedPath(new Rectangle(0, 0, card.Width - 1, card.Height - 1), 8))
-                using (Pen pen = new Pen(cardBorder, 2))
+                using (Pen pen = new Pen(bColor, 2))
                 {
                     e.Graphics.DrawPath(pen, path);
                 }
@@ -565,8 +948,37 @@ namespace MeroDokan
                 BackColor = Color.Transparent
             };
             card.Controls.Add(lblNum);
+            view.LblNumber = lblNum;
 
-            if (tableNum.Contains("-"))
+            if (currentFilterMode == "TAKEAWAY")
+            {
+                Label lblSub = new Label
+                {
+                    Text = $"🛍️ Token {tableNum}",
+                    Font = new Font("Segoe UI Semibold", 8F, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(254, 215, 170),
+                    Location = new Point(14, 48),
+                    AutoSize = true,
+                    BackColor = Color.Transparent
+                };
+                card.Controls.Add(lblSub);
+                view.LblSub = lblSub;
+            }
+            else if (currentFilterMode == "DELIVERY")
+            {
+                Label lblSub = new Label
+                {
+                    Text = $"🛵 Order {tableNum}",
+                    Font = new Font("Segoe UI Semibold", 8F, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(186, 230, 253),
+                    Location = new Point(14, 48),
+                    AutoSize = true,
+                    BackColor = Color.Transparent
+                };
+                card.Controls.Add(lblSub);
+                view.LblSub = lblSub;
+            }
+            else if (tableNum.Contains("-"))
             {
                 char custChar = tableNum.Substring(tableNum.IndexOf('-') + 1)[0];
                 Label lblShared = new Label
@@ -579,73 +991,78 @@ namespace MeroDokan
                     BackColor = Color.Transparent
                 };
                 card.Controls.Add(lblShared);
+                view.LblSub = lblShared;
             }
 
             // Right Section: Timer & Amount
-            if (status == "Running" || status == "Printed")
+            Panel rightBox = new Panel
             {
-                Panel rightBox = new Panel
-                {
-                    Location = new Point(cardW - 95, 12),
-                    Size = new Size(88, 100),
-                    BackColor = Color.FromArgb(30, 0, 0, 0) // Semi-transparent badge
-                };
+                Location = new Point(cardW - 95, 12),
+                Size = new Size(88, 100),
+                BackColor = Color.FromArgb(30, 0, 0, 0), // Semi-transparent badge
+                Visible = (status == "Running" || status == "Printed")
+            };
+            SetDoubleBuffered(rightBox);
 
-                Label lblTimer = new Label
-                {
-                    Text = elapsedStr,
-                    Font = new Font("Segoe UI Semibold", 8F, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(224, 231, 255),
-                    Location = new Point(2, 6),
-                    Size = new Size(84, 20),
-                    TextAlign = ContentAlignment.MiddleCenter,
-                    BackColor = Color.Transparent
-                };
-                rightBox.Controls.Add(lblTimer);
-
-                Label lblAmt = new Label
-                {
-                    Text = $"₹{amount:0}",
-                    Font = new Font("Segoe UI", 12.5F, FontStyle.Bold),
-                    ForeColor = Color.White,
-                    Location = new Point(2, 32),
-                    Size = new Size(84, 30),
-                    TextAlign = ContentAlignment.MiddleCenter,
-                    BackColor = Color.Transparent
-                };
-                rightBox.Controls.Add(lblAmt);
-
-                if (!string.IsNullOrEmpty(kots))
-                {
-                    Label lblKot = new Label
-                    {
-                        Text = $"KOT: {kots}",
-                        Font = new Font("Segoe UI", 7F, FontStyle.Regular),
-                        ForeColor = Color.FromArgb(203, 213, 225),
-                        Location = new Point(2, 68),
-                        Size = new Size(84, 18),
-                        TextAlign = ContentAlignment.MiddleCenter,
-                        BackColor = Color.Transparent
-                    };
-                    rightBox.Controls.Add(lblKot);
-                }
-
-                card.Controls.Add(rightBox);
-            }
-            else
+            Label lblTimer = new Label
             {
-                // Available Badge
-                Label lblAvail = new Label
-                {
-                    Text = "Available",
-                    Font = new Font("Segoe UI Semibold", 8.5F, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(148, 163, 184),
-                    Location = new Point(14, cardH - 35),
-                    AutoSize = true,
-                    BackColor = Color.Transparent
-                };
-                card.Controls.Add(lblAvail);
-            }
+                Text = elapsedStr,
+                Font = new Font("Segoe UI Semibold", 8F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(224, 231, 255),
+                Location = new Point(2, 6),
+                Size = new Size(84, 20),
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Color.Transparent
+            };
+            rightBox.Controls.Add(lblTimer);
+            view.LblTimer = lblTimer;
+
+            Label lblAmt = new Label
+            {
+                Text = $"₹{amount:0}",
+                Font = new Font("Segoe UI", 12.5F, FontStyle.Bold),
+                ForeColor = Color.White,
+                Location = new Point(2, 32),
+                Size = new Size(84, 30),
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Color.Transparent
+            };
+            rightBox.Controls.Add(lblAmt);
+            view.LblAmount = lblAmt;
+
+            Label lblKot = new Label
+            {
+                Text = !string.IsNullOrEmpty(kots) ? $"KOT: {kots}" : "",
+                Font = new Font("Segoe UI", 7F, FontStyle.Regular),
+                ForeColor = Color.FromArgb(203, 213, 225),
+                Location = new Point(2, 68),
+                Size = new Size(84, 18),
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Color.Transparent,
+                Visible = !string.IsNullOrEmpty(kots)
+            };
+            rightBox.Controls.Add(lblKot);
+            view.LblKot = lblKot;
+
+            card.Controls.Add(rightBox);
+            view.RightBox = rightBox;
+
+            // Available Badge
+            Label lblAvail = new Label
+            {
+                Text = "Available",
+                Font = new Font("Segoe UI Semibold", 8.5F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(148, 163, 184),
+                Location = new Point(14, cardH - 35),
+                AutoSize = true,
+                BackColor = Color.Transparent,
+                Visible = (status == "Available")
+            };
+            card.Controls.Add(lblAvail);
+            view.LblAvail = lblAvail;
+
+            card.Tag = view;
+            activeCardViews[tableNum] = view;
 
             // Click Handler to Open POS Billing for this Table
             void HandleCardClick()

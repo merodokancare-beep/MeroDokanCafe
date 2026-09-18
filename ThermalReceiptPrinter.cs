@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Printing;
 using System.Data.SqlClient;
+using System.IO;
 using System.Windows.Forms;
 
 namespace MeroDokan
@@ -164,6 +165,7 @@ namespace MeroDokan
         private class CafeBillData
         {
             public string ShopName = "The Local Cafe";
+            public string LogoPath = "";
             public string GSTIN = "11BIDPB3498K1ZD";
             public string Address = "vajra world Mall Balwa khani,\nGangtok Sikkim 737101";
             public string ContactNo = "9971592652";
@@ -308,7 +310,7 @@ namespace MeroDokan
                 conn.Open();
 
                 // 1. App Profile
-                using (SqlCommand cmd = new SqlCommand("SELECT TOP 1 ShopName, GSTIN, Address, Phone, ISNULL(ReceiptFooterText, 'Tashi Delek! Thukje Che!') AS ReceiptFooterText, BillingPrinterName FROM AppProfile", conn))
+                using (SqlCommand cmd = new SqlCommand("SELECT TOP 1 ShopName, GSTIN, Address, Phone, ISNULL(ReceiptFooterText, 'Tashi Delek! Thukje Che!') AS ReceiptFooterText, BillingPrinterName, LogoPath FROM AppProfile", conn))
                 using (SqlDataReader r = cmd.ExecuteReader())
                 {
                     if (r.Read())
@@ -319,7 +321,24 @@ namespace MeroDokan
                         d.ContactNo = r["Phone"]?.ToString() ?? "";
                         d.FooterGreeting = r["ReceiptFooterText"]?.ToString() ?? "Tashi Delek! Thukje Che!";
                         d.BillingPrinter = r["BillingPrinterName"]?.ToString();
+                        d.LogoPath = r["LogoPath"]?.ToString();
                     }
+                }
+
+                // Fallback resolution for logo
+                if (!string.IsNullOrEmpty(d.LogoPath) && !File.Exists(d.LogoPath))
+                {
+                    string candidate = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, d.LogoPath);
+                    if (File.Exists(candidate)) d.LogoPath = candidate;
+                }
+                if (string.IsNullOrEmpty(d.LogoPath) || !File.Exists(d.LogoPath))
+                {
+                    string p1 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "logo_transparent.png");
+                    string p2 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "logo.jpg");
+                    string p3 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logo.jpg");
+                    if (File.Exists(p1)) d.LogoPath = p1;
+                    else if (File.Exists(p2)) d.LogoPath = p2;
+                    else if (File.Exists(p3)) d.LogoPath = p3;
                 }
 
                 // 2. Sales Record
@@ -337,7 +356,7 @@ namespace MeroDokan
                     {
                         if (r.Read())
                         {
-                            d.BillNo = r["InvoiceNumber"].ToString().Replace("INV-", "").Replace("BILL-", "");
+                            d.BillNo = r["InvoiceNumber"]?.ToString() ?? "";
                             d.DateStr = Convert.ToDateTime(r["SaleDate"]).ToString("yyyy-MM-dd HH:mm:ss");
                             d.OrderType = r["OrderType"].ToString();
                             d.TableNumber = r["TableNumber"].ToString();
@@ -429,7 +448,7 @@ namespace MeroDokan
                             d.Steward = r["Steward"].ToString();
                             d.DateStr = Convert.ToDateTime(r["CreatedAt"]).ToString("yyyy-MM-dd HH:mm:ss");
                             d.KotComment = r["KotComment"].ToString();
-                            d.BillNumber = r["InvoiceNumber"].ToString().Replace("INV-", "").Replace("BILL-", "");
+                            d.BillNumber = r["InvoiceNumber"]?.ToString() ?? "";
                         }
                     }
                 }
@@ -467,20 +486,28 @@ namespace MeroDokan
 
         private static int EstimateCustomerBillHeight(CafeBillData d)
         {
-            int h = 180; // Header and initial meta
-            h += d.Items.Count * 18;
-            if (d.Discount > 0) h += 20;
-            h += 160; // Subtotals, Taxes, Round Off, Total
-            h += 80; // Footer greetings & feed
-            return Math.Max(h, 450);
+            int h = 220; // Header and initial meta
+            if (!string.IsNullOrEmpty(d.LogoPath) && File.Exists(d.LogoPath))
+            {
+                h += 75;
+            }
+            if (!string.IsNullOrEmpty(d.Address))
+            {
+                h += Math.Max(20, (d.Address.Length / 25 + 1) * 18);
+            }
+            h += d.Items.Count * 28;
+            if (d.Discount > 0) h += 25;
+            h += 180; // Subtotals, Taxes, Round Off, Total
+            h += 90; // Footer greetings & feed
+            return Math.Max(h, 520);
         }
 
         private static int EstimateKotHeight(KotData d)
         {
-            int h = 150;
-            h += d.Items.Count * 22;
-            h += 80;
-            return Math.Max(h, 300);
+            int h = 170;
+            h += d.Items.Count * 28;
+            h += 90;
+            return Math.Max(h, 320);
         }
 
         private static void DrawDashedLine(Graphics g, float y)
@@ -498,9 +525,9 @@ namespace MeroDokan
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.SingleBitPerPixelGridFit;
 
             Brush br = Brushes.Black;
-            StringFormat sfCenter = new StringFormat { Alignment = StringAlignment.Center };
-            StringFormat sfRight = new StringFormat { Alignment = StringAlignment.Far };
-            StringFormat sfLeft = new StringFormat { Alignment = StringAlignment.Near };
+            StringFormat sfCenter = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Near, Trimming = StringTrimming.Word };
+            StringFormat sfRight = new StringFormat { Alignment = StringAlignment.Far, LineAlignment = StringAlignment.Near };
+            StringFormat sfLeft = new StringFormat { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Near, Trimming = StringTrimming.Word };
 
             using (Font fHead = FontBold(9.5f))
             using (Font fBody = FontRegular(8.5f))
@@ -509,14 +536,37 @@ namespace MeroDokan
             {
                 float y = 10;
 
+                // 0. Cafe Logo (Centered)
+                if (!string.IsNullOrEmpty(d.LogoPath) && File.Exists(d.LogoPath))
+                {
+                    try
+                    {
+                        using (Image img = Image.FromFile(d.LogoPath))
+                        {
+                            float logoSize = 65f;
+                            float logoX = MarginLeft + (UsableWidth - logoSize) / 2f;
+                            g.DrawImage(img, logoX, y, logoSize, logoSize);
+                            y += logoSize + 6;
+                        }
+                    }
+                    catch { }
+                }
+
                 // 1. Header (Centered)
-                g.DrawString(d.ShopName, fHead, br, new RectangleF(MarginLeft, y, UsableWidth, 18), sfCenter);
-                y += 18;
+                if (!string.IsNullOrEmpty(d.ShopName))
+                {
+                    SizeF shopSz = g.MeasureString(d.ShopName, fHead, (int)UsableWidth, sfCenter);
+                    float h = Math.Max(18f, (float)Math.Ceiling(shopSz.Height));
+                    g.DrawString(d.ShopName, fHead, br, new RectangleF(MarginLeft, y, UsableWidth, h), sfCenter);
+                    y += h + 2;
+                }
 
                 if (!string.IsNullOrEmpty(d.GSTIN))
                 {
-                    g.DrawString("GST No: " + d.GSTIN, fBody, br, new RectangleF(MarginLeft, y, UsableWidth, 16), sfCenter);
-                    y += 16;
+                    SizeF gstSz = g.MeasureString("GST No: " + d.GSTIN, fBody, (int)UsableWidth, sfCenter);
+                    float h = Math.Max(16f, (float)Math.Ceiling(gstSz.Height));
+                    g.DrawString("GST No: " + d.GSTIN, fBody, br, new RectangleF(MarginLeft, y, UsableWidth, h), sfCenter);
+                    y += h + 2;
                 }
 
                 if (!string.IsNullOrEmpty(d.Address))
@@ -524,15 +574,19 @@ namespace MeroDokan
                     string[] addrLines = d.Address.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
                     foreach (string line in addrLines)
                     {
-                        g.DrawString(line, fBody, br, new RectangleF(MarginLeft, y, UsableWidth, 15), sfCenter);
-                        y += 15;
+                        SizeF sz = g.MeasureString(line, fBody, (int)UsableWidth, sfCenter);
+                        float h = Math.Max(15f, (float)Math.Ceiling(sz.Height));
+                        g.DrawString(line, fBody, br, new RectangleF(MarginLeft, y, UsableWidth, h), sfCenter);
+                        y += h + 2;
                     }
                 }
 
                 if (!string.IsNullOrEmpty(d.ContactNo))
                 {
-                    g.DrawString("Contact no: " + d.ContactNo, fBody, br, new RectangleF(MarginLeft, y, UsableWidth, 16), sfCenter);
-                    y += 18;
+                    SizeF phoneSz = g.MeasureString("Contact no: " + d.ContactNo, fBody, (int)UsableWidth, sfCenter);
+                    float h = Math.Max(16f, (float)Math.Ceiling(phoneSz.Height));
+                    g.DrawString("Contact no: " + d.ContactNo, fBody, br, new RectangleF(MarginLeft, y, UsableWidth, h), sfCenter);
+                    y += h + 2;
                 }
 
                 DrawDashedLine(g, y);
@@ -540,7 +594,7 @@ namespace MeroDokan
 
                 // 2. Order Metadata
                 string typeUpper = d.OrderType.ToUpperInvariant();
-                g.DrawString("Type:" + (typeUpper.Contains("TAKE") ? "Take Away" : typeUpper), fBody, br, MarginLeft, y);
+                g.DrawString("Type: " + (typeUpper.Contains("TAKE") ? "Take Away" : typeUpper), fBody, br, MarginLeft, y);
                 y += 15;
 
                 if (!string.IsNullOrEmpty(d.TableNumber) && !typeUpper.Contains("TAKE"))
@@ -552,14 +606,14 @@ namespace MeroDokan
                 DrawDashedLine(g, y);
                 y += 6;
 
-                g.DrawString("Bill No.:" + d.BillNo, fBody, br, MarginLeft, y);
+                g.DrawString("Bill No: " + d.BillNo, fBody, br, MarginLeft, y);
                 y += 15;
-                g.DrawString("Date:" + d.DateStr, fBody, br, MarginLeft, y);
+                g.DrawString("Date: " + d.DateStr, fBody, br, MarginLeft, y);
                 y += 15;
 
                 if (!string.IsNullOrEmpty(d.Kots))
                 {
-                    g.DrawString("Kots:" + d.Kots, fBody, br, MarginLeft, y);
+                    g.DrawString("Kots: " + d.Kots, fBody, br, MarginLeft, y);
                     y += 15;
                 }
 
@@ -575,16 +629,17 @@ namespace MeroDokan
                 DrawDashedLine(g, y);
                 y += 6;
 
-                // 4. Line Items
+                // 4. Line Items (Wrapped nicely so long names are fully visible)
                 foreach (var it in d.Items)
                 {
-                    string itemName = it.Name;
-                    if (itemName.Length > 20) itemName = itemName.Substring(0, 19) + "..";
+                    string itemName = it.Name ?? "";
+                    SizeF nameSz = g.MeasureString(itemName, fBody, 150, sfLeft);
+                    float rowH = Math.Max(16f, (float)Math.Ceiling(nameSz.Height));
 
-                    g.DrawString(itemName, fBody, br, MarginLeft, y);
+                    g.DrawString(itemName, fBody, br, new RectangleF(MarginLeft, y, 150, rowH), sfLeft);
                     g.DrawString(it.Qty.ToString(), fBody, br, MarginLeft + 160, y);
                     g.DrawString(it.Amt.ToString("0.00"), fBody, br, new RectangleF(MarginLeft, y, UsableWidth, 15), sfRight);
-                    y += 16;
+                    y += rowH + 2;
                 }
 
                 DrawDashedLine(g, y);
@@ -637,15 +692,23 @@ namespace MeroDokan
                 DrawDashedLine(g, y);
                 y += 10;
 
-                // 8. Custom Greeting & Branding
-                g.DrawString(d.FooterGreeting, fBody, br, MarginLeft, y);
-                y += 18;
+                // 8. Custom Greeting & Branding (Centered)
+                if (!string.IsNullOrEmpty(d.FooterGreeting))
+                {
+                    SizeF greetSz = g.MeasureString(d.FooterGreeting, fBody, (int)UsableWidth, sfCenter);
+                    float greetH = Math.Max(16f, (float)Math.Ceiling(greetSz.Height));
+                    g.DrawString(d.FooterGreeting, fBody, br, new RectangleF(MarginLeft, y, UsableWidth, greetH), sfCenter);
+                    y += greetH + 4;
+                }
 
                 DrawDashedLine(g, y);
-                y += 10;
+                y += 8;
 
-                g.DrawString(d.Branding, fFoot, br, MarginLeft, y);
-                y += 25;
+                if (!string.IsNullOrEmpty(d.Branding))
+                {
+                    g.DrawString(d.Branding, fFoot, br, new RectangleF(MarginLeft, y, UsableWidth, 16), sfCenter);
+                    y += 22;
+                }
             }
         }
 
@@ -707,6 +770,7 @@ namespace MeroDokan
                 DrawDashedLine(g, y);
                 y += 6;
 
+                StringFormat sfItemLeft = new StringFormat { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Near, Trimming = StringTrimming.Word };
                 int totalQty = 0;
                 foreach (var it in d.Items)
                 {
@@ -714,9 +778,12 @@ namespace MeroDokan
                     string qtyStr = d.IsVoid ? "- " + it.Qty : it.Qty.ToString();
                     totalQty += it.Qty;
 
-                    g.DrawString(prefix, fBold, br, MarginLeft, y);
+                    SizeF sz = g.MeasureString(prefix, fBold, 180, sfItemLeft);
+                    float rowH = Math.Max(18f, (float)Math.Ceiling(sz.Height));
+
+                    g.DrawString(prefix, fBold, br, new RectangleF(MarginLeft, y, 180, rowH), sfItemLeft);
                     g.DrawString(qtyStr, fBold, br, new RectangleF(MarginLeft, y, UsableWidth, 15), sfRight);
-                    y += 18;
+                    y += rowH + 2;
                 }
 
                 DrawDashedLine(g, y);
@@ -732,13 +799,19 @@ namespace MeroDokan
 
                 if (d.IsVoid && !string.IsNullOrEmpty(d.VoidReason))
                 {
-                    g.DrawString("Void Item Comment: " + d.VoidReason, fBody, br, MarginLeft, y);
-                    y += 18;
+                    string note = "Void Item Comment: " + d.VoidReason;
+                    SizeF nSz = g.MeasureString(note, fBody, (int)UsableWidth, sfItemLeft);
+                    float nH = Math.Max(18f, (float)Math.Ceiling(nSz.Height));
+                    g.DrawString(note, fBody, br, new RectangleF(MarginLeft, y, UsableWidth, nH), sfItemLeft);
+                    y += nH + 4;
                 }
                 else if (!string.IsNullOrEmpty(d.KotComment))
                 {
-                    g.DrawString("Notes: " + d.KotComment, fBody, br, MarginLeft, y);
-                    y += 18;
+                    string note = "Notes: " + d.KotComment;
+                    SizeF nSz = g.MeasureString(note, fBody, (int)UsableWidth, sfItemLeft);
+                    float nH = Math.Max(18f, (float)Math.Ceiling(nSz.Height));
+                    g.DrawString(note, fBody, br, new RectangleF(MarginLeft, y, UsableWidth, nH), sfItemLeft);
+                    y += nH + 4;
                 }
             }
         }

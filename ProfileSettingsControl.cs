@@ -573,6 +573,19 @@ namespace MeroDokan
 
                                 // Load Logo
                                 string logo = rdr["LogoPath"]?.ToString();
+                                if (!string.IsNullOrEmpty(logo) && !File.Exists(logo))
+                                {
+                                    string candidate = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, logo);
+                                    if (File.Exists(candidate)) logo = candidate;
+                                }
+                                if (string.IsNullOrEmpty(logo) || !File.Exists(logo))
+                                {
+                                    string p1 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "logo.jpg");
+                                    string p2 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logo.jpg");
+                                    if (File.Exists(p1)) logo = p1;
+                                    else if (File.Exists(p2)) logo = p2;
+                                }
+
                                 if (!string.IsNullOrEmpty(logo) && File.Exists(logo))
                                 {
                                     loadedLogoPath = logo;

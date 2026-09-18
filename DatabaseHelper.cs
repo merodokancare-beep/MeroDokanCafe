@@ -1287,8 +1287,8 @@ namespace MeroDokan
                     if (profileCount == 0)
                     {
                         using (SqlCommand cmd = new SqlCommand(@"
-                            INSERT INTO AppProfile (OwnerName, ShopName, Phone, Email, Address, ThemePreset, BackupFolderPath, GoogleDriveAddress, GSTIN, DefaultGSTRate, ReceiptFooterText, DefaultPackingCharge) 
-                             VALUES ('Cafe Manager', 'The Local Cafe', '9971592652', 'contact@thelocalcafe.com', 'vajra world Mall Balwa khani, Gangtok Sikkim 737101', 'Warm Amber', 'D:\MeroDokanCafe\DailyDatabaseBackup', '', '11BIDPB3498K1ZD', 5.00, 'Tashi Delek! Thukje Che!', 40.00)", conn))
+                            INSERT INTO AppProfile (OwnerName, ShopName, Phone, Email, Address, ThemePreset, BackupFolderPath, GoogleDriveAddress, GSTIN, DefaultGSTRate, ReceiptFooterText, DefaultPackingCharge, LogoPath) 
+                             VALUES ('Cafe Manager', 'The Local Cafe', '9971592652', 'contact@thelocalcafe.com', 'vajra world Mall Balwa khani, Gangtok Sikkim 737101', 'Warm Amber', 'D:\MeroDokanCafe\DailyDatabaseBackup', '', '11BIDPB3498K1ZD', 5.00, 'Tashi Delek! Thukje Che!', 40.00, 'Assets\logo.jpg')", conn))
                         {
                             cmd.ExecuteNonQuery();
                         }
@@ -1526,6 +1526,10 @@ namespace MeroDokan
                             DefaultGSTRate = 5.00,
                             ReceiptFooterText = ''Tashi Delek! Thukje Che!''
                         WHERE ShopName LIKE ''%Saloon%'' OR ShopName = ''Mero Dokan Saloon & Spa'' OR ShopName IS NULL;
+
+                        UPDATE AppProfile
+                        SET LogoPath = ''Assets\logo.jpg''
+                        WHERE LogoPath IS NULL OR LogoPath = '''';
                         ';
 
                         -- Seed Cafe Categories & Menu Items if none exist or only default salon categories exist
@@ -1691,6 +1695,19 @@ namespace MeroDokan
 
                     // Backfill legacy Sales records to make them mathematically consistent in reports
                     ExecuteNonQuery(@"
+                        -- Heal any sales where AmountPaid exceeded GrandTotal (e.g. tendered cash entered instead of net payment)
+                        UPDATE Sales 
+                        SET AmountPaid = GrandTotal 
+                        WHERE AmountPaid > GrandTotal;
+
+                        UPDATE Sales 
+                        SET CashAmount = AmountPaid 
+                        WHERE PaymentMethod = 'Cash' AND CashAmount > AmountPaid;
+
+                        UPDATE Sales 
+                        SET OnlineAmount = AmountPaid 
+                        WHERE PaymentMethod IN ('Card', 'QR Pay', 'UPI', 'Wallet', 'Online', 'UPI / QR Pay') AND OnlineAmount > AmountPaid;
+
                         UPDATE Sales 
                         SET AmountPaid = GrandTotal 
                         WHERE AmountPaid = 0.00 AND DueAmount = 0.00 AND GrandTotal > 0.00;

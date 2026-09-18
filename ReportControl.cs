@@ -858,6 +858,15 @@ namespace MeroDokan
                 using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
                 {
                     conn.Open();
+                    try
+                    {
+                        using (SqlCommand fixCmd = new SqlCommand("UPDATE Sales SET AmountPaid = GrandTotal, CashAmount = CASE WHEN PaymentMethod = 'Cash' THEN GrandTotal ELSE CashAmount END WHERE AmountPaid > GrandTotal", conn))
+                        {
+                            fixCmd.ExecuteNonQuery();
+                        }
+                    }
+                    catch { }
+
                     string query;
                     if (comboSalesTypeFilter != null && comboSalesTypeFilter.SelectedIndex == 1) // Service Sale
                     {
@@ -896,8 +905,8 @@ namespace MeroDokan
                                 CASE 
                                     WHEN s.SubTotal > 0 
                                     THEN ROUND((CASE 
-                                            WHEN s.PaymentMethod = 'Cash' THEN s.AmountPaid
-                                            WHEN s.PaymentMethod = 'Split' THEN ISNULL(s.CashAmount, 0)
+                                            WHEN s.PaymentMethod = 'Cash' THEN (CASE WHEN s.AmountPaid > s.GrandTotal THEN s.GrandTotal ELSE s.AmountPaid END)
+                                            WHEN s.PaymentMethod = 'Split' THEN (CASE WHEN ISNULL(s.CashAmount, 0) > s.GrandTotal THEN s.GrandTotal ELSE ISNULL(s.CashAmount, 0) END)
                                             ELSE 0.00
                                         END) * (fd.ItemSubTotal / s.SubTotal), 2)
                                     ELSE 0.00
@@ -905,8 +914,10 @@ namespace MeroDokan
                                 CASE 
                                     WHEN s.SubTotal > 0 
                                     THEN ROUND((CASE 
-                                            WHEN s.PaymentMethod IN ('Card', 'QR Pay', 'UPI', 'Wallet', 'Online', 'QR Pay / UPI') THEN s.AmountPaid
-                                            WHEN s.PaymentMethod = 'Split' THEN ISNULL(s.OnlineAmount, 0)
+                                            WHEN ISNULL(s.OnlineAmount, 0) > 0 THEN (CASE WHEN s.OnlineAmount > s.GrandTotal THEN s.GrandTotal ELSE s.OnlineAmount END)
+                                            WHEN s.PaymentMethod IN ('Card', 'QR Pay', 'UPI', 'Wallet', 'Online', 'QR Pay / UPI', 'UPI / QR Pay', 'Card / POS') 
+                                                 OR s.PaymentMethod LIKE '%UPI%' OR s.PaymentMethod LIKE '%QR%' OR s.PaymentMethod LIKE '%Card%' OR s.PaymentMethod LIKE '%Online%'
+                                            THEN (CASE WHEN s.AmountPaid > s.GrandTotal THEN s.GrandTotal ELSE s.AmountPaid END)
                                             ELSE 0.00
                                         END) * (fd.ItemSubTotal / s.SubTotal), 2)
                                     ELSE 0.00
@@ -968,8 +979,8 @@ namespace MeroDokan
                                 CASE 
                                     WHEN s.SubTotal > 0 
                                     THEN ROUND((CASE 
-                                            WHEN s.PaymentMethod = 'Cash' THEN s.AmountPaid
-                                            WHEN s.PaymentMethod = 'Split' THEN ISNULL(s.CashAmount, 0)
+                                            WHEN s.PaymentMethod = 'Cash' THEN (CASE WHEN s.AmountPaid > s.GrandTotal THEN s.GrandTotal ELSE s.AmountPaid END)
+                                            WHEN s.PaymentMethod = 'Split' THEN (CASE WHEN ISNULL(s.CashAmount, 0) > s.GrandTotal THEN s.GrandTotal ELSE ISNULL(s.CashAmount, 0) END)
                                             ELSE 0.00
                                         END) * (fd.ItemSubTotal / s.SubTotal), 2)
                                     ELSE 0.00
@@ -977,8 +988,10 @@ namespace MeroDokan
                                 CASE 
                                     WHEN s.SubTotal > 0 
                                     THEN ROUND((CASE 
-                                            WHEN s.PaymentMethod IN ('Card', 'QR Pay', 'UPI', 'Wallet', 'Online', 'QR Pay / UPI') THEN s.AmountPaid
-                                            WHEN s.PaymentMethod = 'Split' THEN ISNULL(s.OnlineAmount, 0)
+                                            WHEN ISNULL(s.OnlineAmount, 0) > 0 THEN (CASE WHEN s.OnlineAmount > s.GrandTotal THEN s.GrandTotal ELSE s.OnlineAmount END)
+                                            WHEN s.PaymentMethod IN ('Card', 'QR Pay', 'UPI', 'Wallet', 'Online', 'QR Pay / UPI', 'UPI / QR Pay', 'Card / POS') 
+                                                 OR s.PaymentMethod LIKE '%UPI%' OR s.PaymentMethod LIKE '%QR%' OR s.PaymentMethod LIKE '%Card%' OR s.PaymentMethod LIKE '%Online%'
+                                            THEN (CASE WHEN s.AmountPaid > s.GrandTotal THEN s.GrandTotal ELSE s.AmountPaid END)
                                             ELSE 0.00
                                         END) * (fd.ItemSubTotal / s.SubTotal), 2)
                                     ELSE 0.00
@@ -1015,13 +1028,15 @@ namespace MeroDokan
                                         ELSE (s.AmountPaid + ISNULL((SELECT SUM(Amount) FROM CustomerPayments WHERE SaleId = s.Id), 0)) 
                                     END as [Amount Paid], 
                                     CASE 
-                                        WHEN s.PaymentMethod = 'Cash' THEN s.AmountPaid
-                                        WHEN s.PaymentMethod = 'Split' THEN ISNULL(s.CashAmount, 0)
+                                        WHEN s.PaymentMethod = 'Cash' THEN (CASE WHEN s.AmountPaid > s.GrandTotal THEN s.GrandTotal ELSE s.AmountPaid END)
+                                        WHEN s.PaymentMethod = 'Split' THEN (CASE WHEN ISNULL(s.CashAmount, 0) > s.GrandTotal THEN s.GrandTotal ELSE ISNULL(s.CashAmount, 0) END)
                                         ELSE 0.00
                                     END as [Cash Paid],
                                     CASE 
-                                        WHEN s.PaymentMethod IN ('Card', 'QR Pay', 'UPI', 'Wallet', 'Online', 'QR Pay / UPI') THEN s.AmountPaid
-                                        WHEN s.PaymentMethod = 'Split' THEN ISNULL(s.OnlineAmount, 0)
+                                        WHEN ISNULL(s.OnlineAmount, 0) > 0 THEN (CASE WHEN s.OnlineAmount > s.GrandTotal THEN s.GrandTotal ELSE s.OnlineAmount END)
+                                        WHEN s.PaymentMethod IN ('Card', 'QR Pay', 'UPI', 'Wallet', 'Online', 'QR Pay / UPI', 'UPI / QR Pay', 'Card / POS') 
+                                             OR s.PaymentMethod LIKE '%UPI%' OR s.PaymentMethod LIKE '%QR%' OR s.PaymentMethod LIKE '%Card%' OR s.PaymentMethod LIKE '%Online%'
+                                        THEN (CASE WHEN s.AmountPaid > s.GrandTotal THEN s.GrandTotal ELSE s.AmountPaid END)
                                         ELSE 0.00
                                     END as [Online Paid],
                                     CASE 
@@ -1066,7 +1081,7 @@ namespace MeroDokan
                             if (gridSalesReport.Columns["Online Paid"] != null) gridSalesReport.Columns["Online Paid"].DefaultCellStyle.Format = "N2";
                             if (gridSalesReport.Columns["Due Amount"] != null) gridSalesReport.Columns["Due Amount"].DefaultCellStyle.Format = "N2";
 
-                            if (gridSalesReport.Columns["Invoice No"] != null) gridSalesReport.Columns["Invoice No"].FillWeight = 85;
+                            if (gridSalesReport.Columns["Invoice No"] != null) gridSalesReport.Columns["Invoice No"].FillWeight = 115;
                             if (gridSalesReport.Columns["Sale Date"] != null) gridSalesReport.Columns["Sale Date"].FillWeight = 100;
                             if (gridSalesReport.Columns["Customer"] != null) gridSalesReport.Columns["Customer"].FillWeight = 110;
                             if (gridSalesReport.Columns["SubTotal"] != null) gridSalesReport.Columns["SubTotal"].FillWeight = 70;
@@ -1761,6 +1776,19 @@ Period: {fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}
                 catch { }
 
                 // Header Section
+                if (!string.IsNullOrEmpty(logoPath) && !File.Exists(logoPath))
+                {
+                    string candidate = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, logoPath);
+                    if (File.Exists(candidate)) logoPath = candidate;
+                }
+                if (string.IsNullOrEmpty(logoPath) || !File.Exists(logoPath))
+                {
+                    string p1 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "logo.jpg");
+                    string p2 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logo.jpg");
+                    if (File.Exists(p1)) logoPath = p1;
+                    else if (File.Exists(p2)) logoPath = p2;
+                }
+
                 int textShiftX = 0;
                 if (!string.IsNullOrEmpty(logoPath) && File.Exists(logoPath))
                 {
@@ -2968,13 +2996,15 @@ Period: {fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}
                             CONVERT(VARCHAR(10), s.SaleDate, 120) AS [Date],
                             COUNT(s.Id) AS [No of Invoice Generated],
                             ISNULL(SUM(CASE 
-                                WHEN s.PaymentMethod = 'Cash' THEN s.AmountPaid
-                                WHEN s.PaymentMethod = 'Split' THEN ISNULL(s.CashAmount, 0)
+                                WHEN s.PaymentMethod = 'Cash' THEN (CASE WHEN s.AmountPaid > s.GrandTotal THEN s.GrandTotal ELSE s.AmountPaid END)
+                                WHEN s.PaymentMethod = 'Split' THEN (CASE WHEN ISNULL(s.CashAmount, 0) > s.GrandTotal THEN s.GrandTotal ELSE ISNULL(s.CashAmount, 0) END)
                                 ELSE 0.00
                             END), 0) AS [Total Cash Collected],
                             ISNULL(SUM(CASE 
-                                WHEN s.PaymentMethod IN ('Card', 'QR Pay', 'UPI', 'Wallet', 'Online', 'QR Pay / UPI') THEN s.AmountPaid
-                                WHEN s.PaymentMethod = 'Split' THEN ISNULL(s.OnlineAmount, 0)
+                                WHEN ISNULL(s.OnlineAmount, 0) > 0 THEN (CASE WHEN s.OnlineAmount > s.GrandTotal THEN s.GrandTotal ELSE s.OnlineAmount END)
+                                WHEN s.PaymentMethod IN ('Card', 'QR Pay', 'UPI', 'Wallet', 'Online', 'QR Pay / UPI', 'UPI / QR Pay', 'Card / POS') 
+                                     OR s.PaymentMethod LIKE '%UPI%' OR s.PaymentMethod LIKE '%QR%' OR s.PaymentMethod LIKE '%Card%' OR s.PaymentMethod LIKE '%Online%'
+                                THEN (CASE WHEN s.AmountPaid > s.GrandTotal THEN s.GrandTotal ELSE s.AmountPaid END)
                                 ELSE 0.00
                             END), 0) AS [Online Payment],
                             ISNULL(SUM(ISNULL(s.TaxableAmount, s.SubTotal - ISNULL(s.Discount, 0))), 0) AS [Total Without Tax],

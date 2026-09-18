@@ -36,31 +36,87 @@ namespace MeroDokan
             }
         }
 
+        public static string GetFinancialYearCode(DateTime dt)
+        {
+            int startYear = (dt.Month >= 4) ? dt.Year : dt.Year - 1;
+            int endYear = startYear + 1;
+            return $"{(startYear % 100):D2}-{(endYear % 100):D2}";
+        }
+
+        public static string GenerateNextInvoiceNumber(SqlConnection conn, SqlTransaction trans = null, DateTime? forDate = null)
+        {
+            DateTime dt = forDate ?? DateTime.Now;
+            string ddmm = dt.ToString("ddMM");
+            string fy = GetFinancialYearCode(dt);
+            string prefix = $"LC/{ddmm}/";
+            string suffix = $"/{fy}";
+            string pattern = $"{prefix}%{suffix}";
+
+            int maxSerial = 0;
+            string sql = "SELECT InvoiceNumber FROM Sales WHERE InvoiceNumber LIKE @pat";
+            try
+            {
+                using (SqlCommand cmd = new SqlCommand(sql, conn, trans))
+                {
+                    cmd.Parameters.AddWithValue("@pat", pattern);
+                    using (SqlDataReader r = cmd.ExecuteReader())
+                    {
+                        while (r.Read())
+                        {
+                            string inv = r[0]?.ToString() ?? "";
+                            string[] parts = inv.Split('/');
+                            // Expected parts: ["LC", "ddMM", "001", "26-27"]
+                            if (parts.Length == 4 && int.TryParse(parts[2], out int serial))
+                            {
+                                if (serial > maxSerial) maxSerial = serial;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            int nextSerial = maxSerial + 1;
+            string candidate = $"{prefix}{nextSerial:D3}{suffix}";
+
+            // Safety collision resolution
+            try
+            {
+                while (true)
+                {
+                    using (SqlCommand checkCmd = new SqlCommand("SELECT COUNT(1) FROM Sales WHERE InvoiceNumber = @candidate", conn, trans))
+                    {
+                        checkCmd.Parameters.AddWithValue("@candidate", candidate);
+                        int exists = Convert.ToInt32(checkCmd.ExecuteScalar());
+                        if (exists == 0) break;
+                    }
+                    nextSerial++;
+                    candidate = $"{prefix}{nextSerial:D3}{suffix}";
+                }
+            }
+            catch { }
+
+            return candidate;
+        }
+
         public static string GetNextInvoiceNumberPreview(SqlConnection externalConn = null)
         {
             try
             {
                 if (externalConn != null && externalConn.State == System.Data.ConnectionState.Open)
                 {
-                    using (var cmd = new System.Data.SqlClient.SqlCommand("SELECT ISNULL(MAX(Id), 0) + 1 FROM Sales", externalConn))
-                    {
-                        int nextId = Convert.ToInt32(cmd.ExecuteScalar());
-                        return "INV-" + nextId;
-                    }
+                    return GenerateNextInvoiceNumber(externalConn, null);
                 }
-                using (var conn = new System.Data.SqlClient.SqlConnection(DatabaseHelper.ConnectionString))
+                using (var conn = new SqlConnection(DatabaseHelper.ConnectionString))
                 {
                     conn.Open();
-                    using (var cmd = new System.Data.SqlClient.SqlCommand("SELECT ISNULL(MAX(Id), 0) + 1 FROM Sales", conn))
-                    {
-                        int nextId = Convert.ToInt32(cmd.ExecuteScalar());
-                        return "INV-" + nextId;
-                    }
+                    return GenerateNextInvoiceNumber(conn, null);
                 }
             }
             catch
             {
-                return "INV-1";
+                DateTime dt = DateTime.Now;
+                return $"LC/{dt:ddMM}/001/{GetFinancialYearCode(dt)}";
             }
         }
 
@@ -121,14 +177,28 @@ namespace MeroDokan
         // Right Order & KOT Panel Controls
         private FlowLayoutPanel kotItemsContainer;
         private Label lblTotalQty;
+        private Label lblSubTotalTitle;
         private Label lblSubTotal;
+        private Label lblDiscountTitle;
+        private ComboBox comboDiscountType;
+        private TextBox txtDiscountVal;
         private Label lblDiscount;
+        private Label lblTaxableTitle;
+        private Label lblTaxableVal;
+        private Label lblTaxTitle;
         private Label lblTax;
+        private Label lblNetTitle;
         private Label lblGrandTotal;
+        private Button btnPayCash;
+        private Button btnPayUpi;
+        private Button btnPayCard;
+        private Button btnPaySplit;
+        private Button btnPayPrint;
         private Button btnKotComment;
-        private Button btnDiscountAction;
         private Button btnPrintKot;
         private Button btnSettle;
+        private string selectedPaymentMethod = "Cash";
+        private bool isUpdatingDiscount = false;
         private string currentKotComment = "";
         private decimal currentDiscountAmount = 0.0m;
         private string currentDiscountReason = "";
@@ -166,6 +236,10 @@ namespace MeroDokan
             currentKotComment = "";
             currentDiscountAmount = 0.0m;
             currentDiscountReason = "";
+            isUpdatingDiscount = true;
+            if (txtDiscountVal != null) txtDiscountVal.Text = "0";
+            if (comboDiscountType != null) comboDiscountType.SelectedIndex = 0;
+            isUpdatingDiscount = false;
 
             try
             {
@@ -177,12 +251,15 @@ namespace MeroDokan
                                kd.ProductId, kd.ItemName, kd.Quantity, kd.Rate, kd.Amount, kd.Instructions, kd.IsVoided
                         FROM KOTMaster k
                         INNER JOIN KOTDetails kd ON k.Id = kd.KOTId
-                        WHERE k.TableNumber = @tNum AND k.Status IN ('Active', 'Served', 'Printed') AND kd.IsVoided = 0
+                        WHERE k.TableNumber = @tNum 
+                          AND (k.OrderType = @type OR (@type = 'DINING' AND (k.OrderType IS NULL OR k.OrderType = '')))
+                          AND k.Status IN ('Active', 'Served', 'Printed') AND kd.IsVoided = 0
                         ORDER BY k.KOTNumber, kd.Id";
 
                     using (SqlCommand cmd = new SqlCommand(query, conn))
                     {
                         cmd.Parameters.AddWithValue("@tNum", ActiveTableNumber);
+                        cmd.Parameters.AddWithValue("@type", ActiveOrderType);
                         using (SqlDataReader r = cmd.ExecuteReader())
                         {
                             while (r.Read())
@@ -1010,65 +1087,20 @@ namespace MeroDokan
             Panel checkoutPanel = new Panel
             {
                 Dock = DockStyle.Bottom,
-                Height = 225,
-                BackColor = Color.FromArgb(15, 23, 42),
-                Padding = new Padding(10, 8, 10, 8)
+                Height = 310,
+                BackColor = Color.FromArgb(11, 19, 41), // Deep navy matching screenshot
+                Padding = new Padding(10, 6, 10, 8)
             };
 
-            // Totals Row
-            lblTotalQty = new Label { Text = "Total : 0 No.", Location = new Point(10, 10), AutoSize = true, Font = Theme.BoldFont, ForeColor = Theme.TextLight };
-            lblSubTotal = new Label { Text = "₹0.00", Location = new Point(240, 10), Size = new Size(130, 20), TextAlign = ContentAlignment.MiddleRight, Font = Theme.BoldFont, ForeColor = Theme.TextLight };
-            checkoutPanel.Controls.Add(lblTotalQty);
-            checkoutPanel.Controls.Add(lblSubTotal);
-
-            lblDiscount = new Label 
-            { 
-                Text = "Offers / Disc: ₹0.00", 
-                Location = new Point(10, 32), 
-                AutoSize = true, 
-                Font = Theme.SmallFont, 
-                ForeColor = Theme.TextMuted,
-                Cursor = Cursors.Hand
-            };
-            lblDiscount.Click += (s, e) => OpenDiscountDialog();
-            checkoutPanel.Controls.Add(lblDiscount);
-
-            btnDiscountAction = new Button
-            {
-                Text = "🏷️ Add Disc",
-                Location = new Point(265, 29),
-                Size = new Size(105, 22),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(30, 41, 59),
-                ForeColor = Theme.Accent,
-                Font = new Font("Segoe UI", 8F, FontStyle.Bold),
-                Cursor = Cursors.Hand
-            };
-            btnDiscountAction.FlatAppearance.BorderSize = 1;
-            btnDiscountAction.FlatAppearance.BorderColor = Color.FromArgb(51, 65, 85);
-            btnDiscountAction.Click += (s, e) => OpenDiscountDialog();
-            checkoutPanel.Controls.Add(btnDiscountAction);
-
-            lblTax = new Label { Text = "Tax (5% GST): ₹0.00", Location = new Point(10, 52), AutoSize = true, Font = Theme.BoldFont, ForeColor = Color.FromArgb(244, 114, 182) };
-            checkoutPanel.Controls.Add(lblTax);
-
-            Panel netLine = new Panel { Location = new Point(10, 76), Size = new Size(360, 1), BackColor = Theme.CardBorder };
-            checkoutPanel.Controls.Add(netLine);
-
-            Label lblNetTitle = new Label { Text = "Net Amount :", Location = new Point(10, 85), AutoSize = true, Font = new Font("Segoe UI", 12F, FontStyle.Bold), ForeColor = Theme.TextWhite };
-            lblGrandTotal = new Label { Text = "₹0.00", Location = new Point(180, 82), Size = new Size(190, 30), TextAlign = ContentAlignment.MiddleRight, Font = new Font("Segoe UI", 16F, FontStyle.Bold), ForeColor = Theme.Accent };
-            checkoutPanel.Controls.Add(lblNetTitle);
-            checkoutPanel.Controls.Add(lblGrandTotal);
-
-            // Action Buttons (Print KOT / Send to Kitchen and Settle)
+            // Top Compact KOT Toolbar (Send to Kitchen and Note)
             btnPrintKot = new Button
             {
-                Text = "🍳 Send to Kitchen (KOT)",
-                Location = new Point(10, 122),
-                Size = new Size(175, 44),
+                Text = "🍳 Send to Kitchen",
+                Location = new Point(10, 6),
+                Size = new Size(200, 28),
                 BackColor = Color.FromArgb(109, 40, 217), // Violet
                 ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
                 FlatStyle = FlatStyle.Flat,
                 Cursor = Cursors.Hand
             };
@@ -1076,29 +1108,14 @@ namespace MeroDokan
             btnPrintKot.Click += BtnPrintKot_Click;
             checkoutPanel.Controls.Add(btnPrintKot);
 
-            btnSettle = new Button
-            {
-                Text = "💳 Settle Bill",
-                Location = new Point(195, 122),
-                Size = new Size(175, 44),
-                BackColor = Theme.Success, // Emerald Green
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI", 10.5F, FontStyle.Bold),
-                FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand
-            };
-            btnSettle.FlatAppearance.BorderSize = 0;
-            btnSettle.Click += BtnSettle_Click;
-            checkoutPanel.Controls.Add(btnSettle);
-
             btnKotComment = new Button
             {
-                Text = "📝 KOT Comment / Special Note",
-                Location = new Point(10, 174),
-                Size = new Size(360, 34),
+                Text = "📝 Note",
+                Location = new Point(216, 6),
+                Size = new Size(154, 28),
                 BackColor = Color.FromArgb(30, 41, 59),
                 ForeColor = Theme.TextMuted,
-                Font = Theme.BoldFont,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
                 FlatStyle = FlatStyle.Flat,
                 Cursor = Cursors.Hand
             };
@@ -1107,18 +1124,230 @@ namespace MeroDokan
             btnKotComment.Click += BtnKotComment_Click;
             checkoutPanel.Controls.Add(btnKotComment);
 
+            lblTotalQty = new Label { Visible = false };
+            checkoutPanel.Controls.Add(lblTotalQty);
+
+            // Row 1: Sub Total
+            lblSubTotalTitle = new Label
+            {
+                Text = "Sub Total",
+                Location = new Point(10, 40),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Regular),
+                ForeColor = Color.FromArgb(148, 163, 184)
+            };
+            lblSubTotal = new Label
+            {
+                Text = "Rs. 0.00",
+                Location = new Point(240, 38),
+                Size = new Size(130, 22),
+                TextAlign = ContentAlignment.MiddleRight,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Color.White
+            };
+            checkoutPanel.Controls.Add(lblSubTotalTitle);
+            checkoutPanel.Controls.Add(lblSubTotal);
+
+            // Row 2: Discount with [% v] [ 0 ] and - Rs. 0.00
+            lblDiscountTitle = new Label
+            {
+                Text = "Discount",
+                Location = new Point(10, 68),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Regular),
+                ForeColor = Color.FromArgb(148, 163, 184)
+            };
+
+            comboDiscountType = new ComboBox
+            {
+                Location = new Point(84, 66),
+                Size = new Size(46, 24),
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                BackColor = Color.White,
+                ForeColor = Color.Black
+            };
+            comboDiscountType.Items.AddRange(new object[] { "%", "Rs." });
+            comboDiscountType.SelectedIndex = 0;
+            comboDiscountType.SelectedIndexChanged += (s, e) => {
+                if (!isUpdatingDiscount)
+                {
+                    RecalculateDiscountFromInputs();
+                    UpdateSummaryDisplay();
+                }
+            };
+
+            txtDiscountVal = new TextBox
+            {
+                Text = "0",
+                Location = new Point(135, 66),
+                Size = new Size(56, 24),
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                BackColor = Color.FromArgb(15, 23, 42),
+                ForeColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                TextAlign = HorizontalAlignment.Center
+            };
+            txtDiscountVal.TextChanged += (s, e) => {
+                if (!isUpdatingDiscount)
+                {
+                    RecalculateDiscountFromInputs();
+                    UpdateSummaryDisplay();
+                }
+            };
+
+            lblDiscount = new Label
+            {
+                Text = "- Rs. 0.00",
+                Location = new Point(240, 68),
+                Size = new Size(130, 22),
+                TextAlign = ContentAlignment.MiddleRight,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(16, 185, 129), // Emerald Green
+                Cursor = Cursors.Hand
+            };
+            lblDiscount.Click += (s, e) => OpenDiscountDialog();
+
+            checkoutPanel.Controls.Add(lblDiscountTitle);
+            checkoutPanel.Controls.Add(comboDiscountType);
+            checkoutPanel.Controls.Add(txtDiscountVal);
+            checkoutPanel.Controls.Add(lblDiscount);
+
+            // Row 3: Taxable Value
+            lblTaxableTitle = new Label
+            {
+                Text = "Taxable Value",
+                Location = new Point(10, 96),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Regular),
+                ForeColor = Color.FromArgb(148, 163, 184)
+            };
+            lblTaxableVal = new Label
+            {
+                Text = "Rs. 0.00",
+                Location = new Point(240, 94),
+                Size = new Size(130, 22),
+                TextAlign = ContentAlignment.MiddleRight,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Color.White
+            };
+            checkoutPanel.Controls.Add(lblTaxableTitle);
+            checkoutPanel.Controls.Add(lblTaxableVal);
+
+            // Row 4: IGST Tax
+            lblTaxTitle = new Label
+            {
+                Text = "IGST Tax",
+                Location = new Point(10, 122),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Regular),
+                ForeColor = Color.FromArgb(148, 163, 184)
+            };
+            lblTax = new Label
+            {
+                Text = "Rs. 0.00",
+                Location = new Point(240, 120),
+                Size = new Size(130, 22),
+                TextAlign = ContentAlignment.MiddleRight,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(249, 115, 22) // Orange
+            };
+            checkoutPanel.Controls.Add(lblTaxTitle);
+            checkoutPanel.Controls.Add(lblTax);
+
+            // Row 5: Divider
+            Panel netLine = new Panel
+            {
+                Location = new Point(10, 148),
+                Size = new Size(360, 1),
+                BackColor = Color.FromArgb(30, 41, 59)
+            };
+            checkoutPanel.Controls.Add(netLine);
+
+            // Row 6: Total Payable
+            lblNetTitle = new Label
+            {
+                Text = "Total Payable",
+                Location = new Point(10, 156),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 12F, FontStyle.Bold),
+                ForeColor = Color.White
+            };
+            lblGrandTotal = new Label
+            {
+                Text = "Rs. 0.00",
+                Location = new Point(180, 152),
+                Size = new Size(190, 32),
+                TextAlign = ContentAlignment.MiddleRight,
+                Font = new Font("Segoe UI", 16F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(249, 115, 22) // Orange
+            };
+            checkoutPanel.Controls.Add(lblNetTitle);
+            checkoutPanel.Controls.Add(lblGrandTotal);
+
+            // Row 7: 4 Payment Mode Buttons
+            btnPayCash = CreatePaymentModeButton("💵\nCash", Color.FromArgb(16, 185, 129), "Cash");
+            btnPayUpi = CreatePaymentModeButton("📱\nUPI", Color.FromArgb(139, 92, 246), "UPI");
+            btnPayCard = CreatePaymentModeButton("💳\nCard", Color.FromArgb(14, 165, 233), "Card");
+            btnPaySplit = CreatePaymentModeButton("🔀\nSplit", Color.FromArgb(249, 115, 22), "Split");
+
+            checkoutPanel.Controls.Add(btnPayCash);
+            checkoutPanel.Controls.Add(btnPayUpi);
+            checkoutPanel.Controls.Add(btnPayCard);
+            checkoutPanel.Controls.Add(btnPaySplit);
+            UpdatePaymentModeButtons();
+
+            // Row 8: PAY PRINT Button
+            btnPayPrint = new Button
+            {
+                Text = "🖨️  PAY  PRINT ( Rs. 0.00 )",
+                Location = new Point(10, 248),
+                Size = new Size(360, 46),
+                BackColor = Color.FromArgb(249, 115, 22), // Orange
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 11.5F, FontStyle.Bold),
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand
+            };
+            btnPayPrint.FlatAppearance.BorderSize = 0;
+            btnPayPrint.Click += BtnSettle_Click;
+            btnSettle = btnPayPrint; // Link reference for compatibility
+            checkoutPanel.Controls.Add(btnPayPrint);
+
+            // Responsive resize handling
             checkoutPanel.SizeChanged += (s, e) => {
                 int pw = checkoutPanel.ClientSize.Width - 20;
-                if (pw < 200) pw = 200;
+                if (pw < 220) pw = 220;
+
+                int kotBtnW = (pw - 6) * 55 / 100;
+                btnPrintKot.Size = new Size(kotBtnW, 28);
+                btnKotComment.Location = new Point(10 + kotBtnW + 6, 6);
+                btnKotComment.Size = new Size(pw - kotBtnW - 6, 28);
+
+                lblSubTotal.Location = new Point(10 + pw - 130, 38);
+                lblDiscount.Location = new Point(10 + pw - 130, 68);
+                lblTaxableVal.Location = new Point(10 + pw - 130, 94);
+                lblTax.Location = new Point(10 + pw - 130, 120);
+
                 netLine.Width = pw;
-                lblSubTotal.Location = new Point(pw - 130, 10);
-                if (btnDiscountAction != null) btnDiscountAction.Location = new Point(pw - 105, 29);
-                lblGrandTotal.Location = new Point(pw - 190, 82);
-                int btnHalf = (pw - 10) / 2;
-                btnPrintKot.Size = new Size(btnHalf, 44);
-                btnSettle.Location = new Point(10 + btnHalf + 10, 122);
-                btnSettle.Size = new Size(btnHalf, 44);
-                btnKotComment.Width = pw;
+                lblGrandTotal.Location = new Point(10 + pw - 190, 152);
+
+                int btnSpacing = 6;
+                int btnW = (pw - (3 * btnSpacing)) / 4;
+                btnPayCash.Location = new Point(10 + 0 * (btnW + btnSpacing), 190);
+                btnPayCash.Size = new Size(btnW, 48);
+
+                btnPayUpi.Location = new Point(10 + 1 * (btnW + btnSpacing), 190);
+                btnPayUpi.Size = new Size(btnW, 48);
+
+                btnPayCard.Location = new Point(10 + 2 * (btnW + btnSpacing), 190);
+                btnPayCard.Size = new Size(btnW, 48);
+
+                btnPaySplit.Location = new Point(10 + 3 * (btnW + btnSpacing), 190);
+                btnPaySplit.Size = new Size(pw - 3 * (btnW + btnSpacing), 48);
+
+                btnPayPrint.Location = new Point(10, 248);
+                btnPayPrint.Size = new Size(pw, 46);
             };
 
             rightOrderPanel.Controls.Add(checkoutPanel);
@@ -1137,6 +1366,84 @@ namespace MeroDokan
 
             checkoutPanel.SendToBack();
             kotItemsContainer.BringToFront();
+        }
+
+        private Button CreatePaymentModeButton(string text, Color bg, string method)
+        {
+            Button btn = new Button
+            {
+                Text = text,
+                BackColor = bg,
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI Emoji", 8.5F, FontStyle.Bold),
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            btn.FlatAppearance.BorderSize = 0;
+            btn.Click += (s, e) => {
+                selectedPaymentMethod = method;
+                UpdatePaymentModeButtons();
+            };
+            return btn;
+        }
+
+        private void UpdatePaymentModeButtons()
+        {
+            Button[] buttons = new[] { btnPayCash, btnPayUpi, btnPayCard, btnPaySplit };
+            string[] modes = new[] { "Cash", "UPI", "Card", "Split" };
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                if (buttons[i] == null) continue;
+                bool isSelected = string.Equals(selectedPaymentMethod, modes[i], StringComparison.OrdinalIgnoreCase);
+                buttons[i].FlatAppearance.BorderSize = isSelected ? 2 : 0;
+                buttons[i].FlatAppearance.BorderColor = Color.White;
+            }
+        }
+
+        private void RecalculateDiscountFromInputs()
+        {
+            decimal totalGross = cartItems.Sum(x => x.LineTotal);
+            if (ActiveOrderType == "TAKEAWAY") totalGross += currentPackingCharge;
+
+            string text = txtDiscountVal?.Text?.Trim() ?? "0";
+            if (string.IsNullOrEmpty(text)) text = "0";
+
+            if (decimal.TryParse(text, out decimal val) && val >= 0)
+            {
+                if (comboDiscountType?.SelectedItem?.ToString() == "%")
+                {
+                    currentDiscountAmount = Math.Round((totalGross * val) / 100m, 2);
+                }
+                else
+                {
+                    currentDiscountAmount = Math.Min(totalGross, val);
+                }
+            }
+            else
+            {
+                currentDiscountAmount = 0m;
+            }
+        }
+
+        private void UpdateSummaryDisplay()
+        {
+            decimal totalGross = cartItems.Sum(x => x.LineTotal);
+            if (ActiveOrderType == "TAKEAWAY") totalGross += currentPackingCharge;
+
+            decimal discountVal = Math.Min(totalGross, currentDiscountAmount);
+            decimal discountedGross = Math.Max(0, totalGross - discountVal);
+
+            decimal taxableSubTotal = Math.Round(discountedGross / 1.05m, 2);
+            decimal totalGst = discountedGross - taxableSubTotal;
+            decimal grandTotal = Math.Round(discountedGross, 0);
+
+            if (lblSubTotal != null) lblSubTotal.Text = $"Rs. {totalGross:0.00}";
+            if (lblDiscount != null) lblDiscount.Text = $"- Rs. {discountVal:0.00}";
+            if (lblTaxableVal != null) lblTaxableVal.Text = $"Rs. {taxableSubTotal:0.00}";
+            if (lblTax != null) lblTax.Text = $"Rs. {totalGst:0.00}";
+            if (lblGrandTotal != null) lblGrandTotal.Text = $"Rs. {grandTotal:0.00}";
+            if (btnPayPrint != null) btnPayPrint.Text = $"🖨️  PAY  PRINT ( Rs. {grandTotal:0.00} )";
         }
 
         private void OpenDiscountDialog()
@@ -1158,13 +1465,21 @@ namespace MeroDokan
                     {
                         currentDiscountAmount = 0m;
                         currentDiscountReason = "";
+                        isUpdatingDiscount = true;
+                        if (txtDiscountVal != null) txtDiscountVal.Text = "0";
+                        if (comboDiscountType != null) comboDiscountType.SelectedIndex = 0;
+                        isUpdatingDiscount = false;
                     }
                     else
                     {
                         currentDiscountAmount = dlg.DiscountAmount;
                         currentDiscountReason = dlg.DiscountReason;
+                        isUpdatingDiscount = true;
+                        if (comboDiscountType != null) comboDiscountType.SelectedIndex = 1; // "Rs."
+                        if (txtDiscountVal != null) txtDiscountVal.Text = currentDiscountAmount.ToString("0.##");
+                        isUpdatingDiscount = false;
                     }
-                    RefreshOrderCartView();
+                    UpdateSummaryDisplay();
                 }
             }
         }
@@ -1658,41 +1973,9 @@ namespace MeroDokan
 
             kotItemsContainer.ResumeLayout();
 
-            // Calculate SubTotal, Discount, and 5% GST (Reverse Calculation from Inclusive Total)
-            decimal discountVal = Math.Min(totalGross, currentDiscountAmount);
-            decimal discountedGross = Math.Max(0, totalGross - discountVal);
-
-            decimal taxableSubTotal = Math.Round(discountedGross / 1.05m, 2);
-            decimal totalGst = discountedGross - taxableSubTotal;
-            decimal netAmount = Math.Round(discountedGross, 0);
-
-            lblTotalQty.Text = $"Total : {totalQty} No.";
-            lblSubTotal.Text = $"₹{taxableSubTotal:0.00}";
-
-            if (discountVal > 0)
-            {
-                string reasonSnippet = string.IsNullOrEmpty(currentDiscountReason) ? "" : $" ({currentDiscountReason})";
-                lblDiscount.Text = $"Offers / Disc: -₹{discountVal:0.00}{reasonSnippet}";
-                lblDiscount.ForeColor = Color.FromArgb(248, 113, 113);
-                if (btnDiscountAction != null)
-                {
-                    btnDiscountAction.Text = "✏️ Edit Disc";
-                    btnDiscountAction.ForeColor = Color.FromArgb(248, 113, 113);
-                }
-            }
-            else
-            {
-                lblDiscount.Text = "Offers / Disc: ₹0.00";
-                lblDiscount.ForeColor = Theme.TextMuted;
-                if (btnDiscountAction != null)
-                {
-                    btnDiscountAction.Text = "🏷️ Add Disc";
-                    btnDiscountAction.ForeColor = Theme.Accent;
-                }
-            }
-
-            lblTax.Text = $"Tax (5% GST): ₹{totalGst:0.00}";
-            lblGrandTotal.Text = $"₹{netAmount:0.00}";
+            // Calculate & update summary display
+            RecalculateDiscountFromInputs();
+            UpdateSummaryDisplay();
         }
 
         private void RemoveOrVoidItem(CartItem item)
@@ -1830,6 +2113,7 @@ namespace MeroDokan
 
                 MessageBox.Show($"KOT #{nextKotNumber} printed and sent to kitchen successfully!", "KOT Generated", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 RefreshOrderCartView();
+                MainForm.Instance?.RefreshLiveOrderCounts();
             }
             catch (Exception ex)
             {
@@ -1841,6 +2125,12 @@ namespace MeroDokan
         {
             try
             {
+                // Only update physical CafeTables if it's a DINING order or Waiting table
+                if (ActiveOrderType != "DINING" && !ActiveTableNumber.StartsWith("Waiting", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
                 decimal totalGross = cartItems.Sum(x => x.LineTotal);
                 if (ActiveOrderType == "TAKEAWAY") totalGross += currentPackingCharge;
                 decimal netRunning = Math.Max(0, totalGross - currentDiscountAmount);
@@ -1894,13 +2184,17 @@ namespace MeroDokan
             decimal grandTotal = Math.Round(discountedGross, 0);
             decimal roundOff = grandTotal - discountedGross;
 
-            using (SettlePaymentDialog dlg = new SettlePaymentDialog(grandTotal))
+            string defaultMethod = selectedPaymentMethod;
+            if (defaultMethod == "UPI") defaultMethod = "UPI / QR Pay";
+
+            using (SettlePaymentDialog dlg = new SettlePaymentDialog(grandTotal, "", "", defaultMethod))
             {
                 if (dlg.ShowDialog() == DialogResult.OK)
                 {
                     try
                     {
                         int saleId = 0;
+                        string settledInvNumber = "";
                         string kots = string.Join(",", cartItems.Where(x => x.KotNumber > 0).Select(x => x.KotNumber.ToString()).Distinct());
                         string steward = cmbSteward.SelectedItem?.ToString() ?? "Tashi";
 
@@ -1911,22 +2205,25 @@ namespace MeroDokan
                             {
                                 try
                                 {
-                                    // 1. Next Invoice Number
-                                    int nextInvNo = 1;
-                                    using (SqlCommand cmd = new SqlCommand("SELECT ISNULL(MAX(Id), 0) + 1 FROM Sales", conn, trans))
-                                    {
-                                        nextInvNo = Convert.ToInt32(cmd.ExecuteScalar());
-                                    }
-                                    string invNumber = "INV-" + nextInvNo;
+                                    // 1. Next Invoice Number (LC/DDmm/001/26-27)
+                                    string invNumber = GenerateNextInvoiceNumber(conn, trans);
+                                    settledInvNumber = invNumber;
+
+                                    decimal paidAmt = Math.Min(grandTotal, Math.Max(0, dlg.AmountPaid));
+                                    decimal dueAmt = Math.Max(0, grandTotal - paidAmt);
+                                    decimal cashAmt = (dlg.PaymentMethod == "Cash") ? paidAmt : 0m;
+                                    decimal onlineAmt = (dlg.PaymentMethod == "Card" || dlg.PaymentMethod == "UPI / QR Pay" || dlg.PaymentMethod == "Online") ? paidAmt : 0m;
 
                                     // 2. Insert Sales Record
                                     string insSaleSql = @"
                                         INSERT INTO Sales (
                                             InvoiceNumber, SaleDate, SubTotal, Discount, Tax, GrandTotal, AmountPaid, DueAmount, PaymentMethod,
-                                            OrderType, TableNumber, KotNumbers, PackingCharges, StewardName, RoundOff, TaxableAmount, CGSTAmount, SGSTAmount, IsGSTBill
+                                            OrderType, TableNumber, KotNumbers, PackingCharges, StewardName, RoundOff, TaxableAmount, CGSTAmount, SGSTAmount, IsGSTBill,
+                                            CashAmount, OnlineAmount
                                         ) VALUES (
                                             @inv, GETDATE(), @sub, @disc, @tax, @grand, @paid, @due, @payMethod,
-                                            @orderType, @tNum, @kots, @packing, @stwd, @roundOff, @taxable, @cgst, @sgst, 1
+                                            @orderType, @tNum, @kots, @packing, @stwd, @roundOff, @taxable, @cgst, @sgst, 1,
+                                            @cashAmt, @onlineAmt
                                         );
                                         SELECT SCOPE_IDENTITY();";
 
@@ -1937,9 +2234,11 @@ namespace MeroDokan
                                         cmd.Parameters.AddWithValue("@disc", discountVal);
                                         cmd.Parameters.AddWithValue("@tax", totalGst);
                                         cmd.Parameters.AddWithValue("@grand", grandTotal);
-                                        cmd.Parameters.AddWithValue("@paid", dlg.AmountPaid);
-                                        cmd.Parameters.AddWithValue("@due", Math.Max(0, grandTotal - dlg.AmountPaid));
+                                        cmd.Parameters.AddWithValue("@paid", paidAmt);
+                                        cmd.Parameters.AddWithValue("@due", dueAmt);
                                         cmd.Parameters.AddWithValue("@payMethod", dlg.PaymentMethod);
+                                        cmd.Parameters.AddWithValue("@cashAmt", cashAmt);
+                                        cmd.Parameters.AddWithValue("@onlineAmt", onlineAmt);
                                         cmd.Parameters.AddWithValue("@orderType", ActiveOrderType);
                                         cmd.Parameters.AddWithValue("@tNum", ActiveTableNumber);
                                         cmd.Parameters.AddWithValue("@kots", (object)kots ?? DBNull.Value);
@@ -1993,51 +2292,60 @@ namespace MeroDokan
                                     }
 
                                     // 5. Mark KOTs as Billed
-                                    string billKotSql = "UPDATE KOTMaster SET Status = 'Billed', SaleId = @saleId WHERE TableNumber = @tNum AND Status IN ('Active', 'Served', 'Printed')";
+                                    string billKotSql = @"
+                                        UPDATE KOTMaster 
+                                        SET Status = 'Billed', SaleId = @saleId 
+                                        WHERE TableNumber = @tNum 
+                                          AND (OrderType = @orderType OR (@orderType = 'DINING' AND (OrderType IS NULL OR OrderType = '')))
+                                          AND Status IN ('Active', 'Served', 'Printed')";
                                     using (SqlCommand cmd = new SqlCommand(billKotSql, conn, trans))
                                     {
                                         cmd.Parameters.AddWithValue("@saleId", saleId);
                                         cmd.Parameters.AddWithValue("@tNum", ActiveTableNumber);
+                                        cmd.Parameters.AddWithValue("@orderType", ActiveOrderType);
                                         cmd.ExecuteNonQuery();
                                     }
 
-                                    // 6. Reset Cafe Table to Available & Consolidate Shared Sub-Tables
-                                    string resetTableSql = @"
-                                        UPDATE CafeTables 
-                                        SET Status = 'Available', CurrentBillAmount = 0.00, OrderStartTime = NULL, BilledTime = NULL,
-                                            ActiveKotNumbers = NULL, ActiveSaleId = NULL, CurrentSteward = NULL
-                                        WHERE TableNumber = @tNum;
-
-                                        -- If this was a shared sub-table (e.g., 2-A or 2-B), check if all sibling sub-tables are now settled
-                                        IF CHARINDEX('-', @tNum) > 0
-                                        BEGIN
-                                            DECLARE @baseNum NVARCHAR(50) = SUBSTRING(@tNum, 1, CHARINDEX('-', @tNum) - 1);
-                                            DECLARE @pattern NVARCHAR(55) = @baseNum + '-%';
-
-                                            -- If no sibling sub-table is still running
-                                            IF NOT EXISTS (SELECT 1 FROM CafeTables WHERE TableNumber LIKE @pattern AND Status IN ('Running', 'Printed') AND TableNumber <> @tNum)
-                                            BEGIN
-                                                -- If the base table row doesn't exist, restore it from this row
-                                                IF NOT EXISTS (SELECT 1 FROM CafeTables WHERE TableNumber = @baseNum)
-                                                BEGIN
-                                                    UPDATE CafeTables 
-                                                    SET TableNumber = @baseNum, TableName = 'Table ' + @baseNum, Status = 'Available', CurrentBillAmount = 0.00,
-                                                        OrderStartTime = NULL, BilledTime = NULL, ActiveKotNumbers = NULL, ActiveSaleId = NULL, CurrentSteward = NULL
-                                                    WHERE TableNumber = @tNum;
-                                                END
-                                                ELSE
-                                                BEGIN
-                                                    DELETE FROM CafeTables WHERE TableNumber = @tNum;
-                                                END
-
-                                                -- Clean up any other available sub-table rows for this base table
-                                                DELETE FROM CafeTables WHERE TableNumber LIKE @pattern AND TableNumber <> @baseNum AND Status = 'Available';
-                                            END
-                                        END";
-                                    using (SqlCommand cmd = new SqlCommand(resetTableSql, conn, trans))
+                                    // 6. Reset Cafe Table to Available & Consolidate Shared Sub-Tables (for Dining and Waiting tables)
+                                    if (ActiveOrderType == "DINING" || ActiveTableNumber.StartsWith("Waiting", StringComparison.OrdinalIgnoreCase))
                                     {
-                                        cmd.Parameters.AddWithValue("@tNum", ActiveTableNumber);
-                                        cmd.ExecuteNonQuery();
+                                        string resetTableSql = @"
+                                            UPDATE CafeTables 
+                                            SET Status = 'Available', CurrentBillAmount = 0.00, OrderStartTime = NULL, BilledTime = NULL,
+                                                ActiveKotNumbers = NULL, ActiveSaleId = NULL, CurrentSteward = NULL
+                                            WHERE TableNumber = @tNum;
+
+                                            -- If this was a shared sub-table (e.g., 2-A or 2-B), check if all sibling sub-tables are now settled
+                                            IF CHARINDEX('-', @tNum) > 0
+                                            BEGIN
+                                                DECLARE @baseNum NVARCHAR(50) = SUBSTRING(@tNum, 1, CHARINDEX('-', @tNum) - 1);
+                                                DECLARE @pattern NVARCHAR(55) = @baseNum + '-%';
+
+                                                -- If no sibling sub-table is still running
+                                                IF NOT EXISTS (SELECT 1 FROM CafeTables WHERE TableNumber LIKE @pattern AND Status IN ('Running', 'Printed') AND TableNumber <> @tNum)
+                                                BEGIN
+                                                    -- If the base table row doesn't exist, restore it from this row
+                                                    IF NOT EXISTS (SELECT 1 FROM CafeTables WHERE TableNumber = @baseNum)
+                                                    BEGIN
+                                                        UPDATE CafeTables 
+                                                        SET TableNumber = @baseNum, TableName = 'Table ' + @baseNum, Status = 'Available', CurrentBillAmount = 0.00,
+                                                            OrderStartTime = NULL, BilledTime = NULL, ActiveKotNumbers = NULL, ActiveSaleId = NULL, CurrentSteward = NULL
+                                                        WHERE TableNumber = @tNum;
+                                                    END
+                                                    ELSE
+                                                    BEGIN
+                                                        DELETE FROM CafeTables WHERE TableNumber = @tNum;
+                                                    END
+
+                                                    -- Clean up any other available sub-table rows for this base table
+                                                    DELETE FROM CafeTables WHERE TableNumber LIKE @pattern AND TableNumber <> @baseNum AND Status = 'Available';
+                                                END
+                                            END";
+                                        using (SqlCommand cmd = new SqlCommand(resetTableSql, conn, trans))
+                                        {
+                                            cmd.Parameters.AddWithValue("@tNum", ActiveTableNumber);
+                                            cmd.ExecuteNonQuery();
+                                        }
                                     }
 
                                     trans.Commit();
@@ -2056,12 +2364,17 @@ namespace MeroDokan
                             ThermalReceiptPrinter.Print(saleId);
                         }
 
-                        MessageBox.Show($"Bill #{saleId} settled successfully!", "Settlement Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBox.Show($"Invoice {settledInvNumber} settled successfully!", "Settlement Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         cartItems.Clear();
                         currentPackingCharge = 0;
                         currentDiscountAmount = 0m;
                         currentDiscountReason = "";
+                        isUpdatingDiscount = true;
+                        if (txtDiscountVal != null) txtDiscountVal.Text = "0";
+                        if (comboDiscountType != null) comboDiscountType.SelectedIndex = 0;
+                        isUpdatingDiscount = false;
                         RefreshOrderCartView();
+                        MainForm.Instance?.RefreshLiveOrderCounts();
 
                         // Navigate back to floor plan
                         OnNavigateToFloor?.Invoke();

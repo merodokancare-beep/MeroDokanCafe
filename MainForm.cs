@@ -10,6 +10,8 @@ namespace MeroDokan
 {
     public class MainForm : Form
     {
+        public static MainForm Instance { get; private set; }
+
         private Panel sidebarPanel;
         private Panel sidebarTopPanel;
         private FlowLayoutPanel sidebarMenuPanel;
@@ -17,6 +19,12 @@ namespace MeroDokan
         private Panel headerPanel;
         private Panel footerPanel;
         private Panel mainContentPanel;
+
+        private FlowLayoutPanel headerCountsFlow;
+        private Label lblDiningCount;
+        private Label lblTakeawayCount;
+        private Label lblDeliveryCount;
+        private Label lblWaitingCount;
 
         private Label lblClockFooter;
         private Label lblInvoiceFooter;
@@ -70,10 +78,12 @@ namespace MeroDokan
 
         public MainForm()
         {
+            Instance = this;
             InitializeComponent();
             RefreshThemeColors();
             
             this.Load += (s, e) => {
+                RefreshLiveOrderCounts();
                 if (btnTables != null) btnTables.PerformClick();
                 else if (btnDashboard != null) btnDashboard.PerformClick();
             };
@@ -435,6 +445,36 @@ namespace MeroDokan
             };
             headerRightPanel.Controls.Add(btnHeaderNewAppt);
 
+            // Left-aligned Live Order Status Counts (Dining, Take Away, Delivery, Waiting)
+            headerCountsFlow = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Left,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                BackColor = Color.Transparent,
+                Padding = new Padding(0, 3, 0, 0)
+            };
+
+            var (chipDining, lblD) = CreateHeaderCountChip("🍽️", "Dining", Color.FromArgb(59, 130, 246), () => NavigateToFloorMode("DINING"));
+            lblDiningCount = lblD;
+            headerCountsFlow.Controls.Add(chipDining);
+
+            var (chipTakeaway, lblT) = CreateHeaderCountChip("🛍️", "Take Away", Color.FromArgb(16, 185, 129), () => NavigateToFloorMode("TAKEAWAY"));
+            lblTakeawayCount = lblT;
+            headerCountsFlow.Controls.Add(chipTakeaway);
+
+            var (chipDelivery, lblDel) = CreateHeaderCountChip("🛵", "Delivery", Color.FromArgb(249, 115, 22), () => NavigateToFloorMode("DELIVERY"));
+            lblDeliveryCount = lblDel;
+            headerCountsFlow.Controls.Add(chipDelivery);
+
+            var (chipWaiting, lblW) = CreateHeaderCountChip("⏳", "Waiting", Color.FromArgb(234, 179, 8), () => NavigateToFloorMode("WAITING"));
+            lblWaitingCount = lblW;
+            headerCountsFlow.Controls.Add(chipWaiting);
+
+            headerPanel.Controls.Add(headerCountsFlow);
+
             // ==========================================
             // 3. BOTTOM STATUS FOOTER BAR
             // ==========================================
@@ -486,11 +526,15 @@ namespace MeroDokan
             Theme.StyleLabel(lblBranchFooter, Theme.TextMuted, new Font("Segoe UI", 8F));
             footerPanel.Controls.Add(lblBranchFooter);
 
-            // Timer for footer clock
+            // Timer for footer clock & live order counts
             clockTimer = new System.Windows.Forms.Timer();
             clockTimer.Interval = 1000;
             clockTimer.Tick += (s, e) => {
                 lblClockFooter.Text = $"⏰ {DateTime.Now:hh:mm tt}";
+                if (DateTime.Now.Second % 2 == 0)
+                {
+                    RefreshLiveOrderCounts();
+                }
                 if (DateTime.Now.Second == 0)
                 {
                     UpdateInvoiceFooter();
@@ -651,6 +695,7 @@ namespace MeroDokan
             view.Dock = DockStyle.Fill;
             mainContentPanel.Controls.Add(view);
             view.BringToFront();
+            RefreshLiveOrderCounts();
         }
 
         private void ToggleSidebar()
@@ -823,11 +868,27 @@ namespace MeroDokan
                                 // Load and display the official Shop Logo in the sidebar
                                 if (picLogoIcon != null && lblLogoIcon != null)
                                 {
-                                    if (!string.IsNullOrEmpty(logoPath) && File.Exists(logoPath))
+                                    string resolvedLogo = logoPath;
+                                    if (!string.IsNullOrEmpty(resolvedLogo) && !File.Exists(resolvedLogo))
+                                    {
+                                        string candidate = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, resolvedLogo);
+                                        if (File.Exists(candidate)) resolvedLogo = candidate;
+                                    }
+                                    if (string.IsNullOrEmpty(resolvedLogo) || !File.Exists(resolvedLogo))
+                                    {
+                                        string p1 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "logo_transparent.png");
+                                        string p2 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "logo.jpg");
+                                        string p3 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logo.jpg");
+                                        if (File.Exists(p1)) resolvedLogo = p1;
+                                        else if (File.Exists(p2)) resolvedLogo = p2;
+                                        else if (File.Exists(p3)) resolvedLogo = p3;
+                                    }
+
+                                    if (!string.IsNullOrEmpty(resolvedLogo) && File.Exists(resolvedLogo))
                                     {
                                         try
                                         {
-                                            byte[] bytes = File.ReadAllBytes(logoPath);
+                                            byte[] bytes = File.ReadAllBytes(resolvedLogo);
                                             using (var ms = new MemoryStream(bytes))
                                             {
                                                 var oldImg = picLogoIcon.Image;
@@ -874,6 +935,168 @@ namespace MeroDokan
                 }
             }
             catch { }
+        }
+
+        private (Panel chip, Label lblCount) CreateHeaderCountChip(string icon, string title, Color accentColor, Action onClick)
+        {
+            FlowLayoutPanel chip = new FlowLayoutPanel
+            {
+                Height = 40,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                BackColor = Color.FromArgb(20, 29, 47),
+                Cursor = Cursors.Hand,
+                Margin = new Padding(0, 2, 10, 0),
+                Padding = new Padding(12, 8, 10, 8)
+            };
+
+            Label lblTitle = new Label
+            {
+                Text = $"{icon}  {title}",
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(203, 213, 225),
+                AutoSize = true,
+                Margin = new Padding(0, 3, 8, 0),
+                BackColor = Color.Transparent,
+                Cursor = Cursors.Hand
+            };
+
+            Label lblCount = new Label
+            {
+                Text = "0",
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(148, 163, 184),
+                BackColor = Color.FromArgb(30, 41, 59),
+                AutoSize = false,
+                Size = new Size(26, 22),
+                TextAlign = ContentAlignment.MiddleCenter,
+                Margin = new Padding(0, 1, 0, 0),
+                Cursor = Cursors.Hand
+            };
+
+            chip.Controls.Add(lblTitle);
+            chip.Controls.Add(lblCount);
+
+            chip.Paint += (s, e) => {
+                using (Pen p = new Pen(Color.FromArgb(45, 59, 82), 1))
+                {
+                    e.Graphics.DrawRectangle(p, 0, 0, chip.Width - 1, chip.Height - 1);
+                }
+            };
+
+            void AttachEvents(Control c)
+            {
+                c.Click += (s, e) => onClick?.Invoke();
+                c.MouseEnter += (s, e) => {
+                    chip.BackColor = Color.FromArgb(32, 45, 72);
+                    lblTitle.ForeColor = Color.White;
+                };
+                c.MouseLeave += (s, e) => {
+                    chip.BackColor = Color.FromArgb(20, 29, 47);
+                    lblTitle.ForeColor = Color.FromArgb(203, 213, 225);
+                };
+            }
+
+            AttachEvents(chip);
+            AttachEvents(lblTitle);
+            AttachEvents(lblCount);
+
+            return (chip, lblCount);
+        }
+
+        private void UpdateCountBadge(Label lbl, int count, Color activeColor)
+        {
+            if (lbl == null) return;
+            lbl.Text = count.ToString();
+            if (count > 0)
+            {
+                lbl.BackColor = activeColor;
+                lbl.ForeColor = Color.White;
+            }
+            else
+            {
+                lbl.BackColor = Color.FromArgb(30, 41, 59);
+                lbl.ForeColor = Color.FromArgb(148, 163, 184);
+            }
+        }
+
+        public void NavigateToFloorMode(string mode)
+        {
+            if (mainContentPanel.Controls.Count > 0 && mainContentPanel.Controls[0] is TableFloorControl floor)
+            {
+                floor.SwitchMode(mode);
+            }
+            else
+            {
+                var floorCtrl = new TableFloorControl(mode);
+                floorCtrl.OnTableSelected += (tblNum, orderType) => {
+                    var posCtrl = new SalesBillingControl();
+                    posCtrl.OnNavigateToFloor += () => btnTables.PerformClick();
+                    posCtrl.LoadTableOrder(tblNum, orderType);
+                    ShowView(posCtrl, btnPOS, $"POS Billing - Table {tblNum}");
+                };
+                ShowView(floorCtrl, btnTables, "Floor & Table Management");
+            }
+        }
+
+        public void RefreshLiveOrderCounts()
+        {
+            try
+            {
+                int diningCount = 0;
+                int takeawayCount = 0;
+                int deliveryCount = 0;
+                int waitingCount = 0;
+
+                using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
+                {
+                    conn.Open();
+                    string sql = @"
+                        SELECT 
+                            COUNT(DISTINCT CASE WHEN (k.OrderType = 'DINING' OR k.OrderType IS NULL OR k.OrderType = '') AND k.TableNumber NOT LIKE 'Waiting%' THEN k.TableNumber END) AS DiningCount,
+                            COUNT(DISTINCT CASE WHEN k.OrderType = 'TAKEAWAY' THEN k.TableNumber END) AS TakeawayCount,
+                            COUNT(DISTINCT CASE WHEN k.OrderType = 'DELIVERY' THEN k.TableNumber END) AS DeliveryCount,
+                            COUNT(DISTINCT CASE WHEN k.TableNumber LIKE 'Waiting%' THEN k.TableNumber END) AS WaitingCount
+                        FROM KOTMaster k
+                        INNER JOIN KOTDetails kd ON k.Id = kd.KOTId
+                        WHERE k.Status IN ('Active', 'Served', 'Printed') AND kd.IsVoided = 0";
+
+                    using (SqlCommand cmd = new SqlCommand(sql, conn))
+                    using (SqlDataReader r = cmd.ExecuteReader())
+                    {
+                        if (r.Read())
+                        {
+                            diningCount = r["DiningCount"] != DBNull.Value ? Convert.ToInt32(r["DiningCount"]) : 0;
+                            takeawayCount = r["TakeawayCount"] != DBNull.Value ? Convert.ToInt32(r["TakeawayCount"]) : 0;
+                            deliveryCount = r["DeliveryCount"] != DBNull.Value ? Convert.ToInt32(r["DeliveryCount"]) : 0;
+                            waitingCount = r["WaitingCount"] != DBNull.Value ? Convert.ToInt32(r["WaitingCount"]) : 0;
+                        }
+                    }
+                }
+
+                if (this.InvokeRequired)
+                {
+                    this.BeginInvoke((Action)(() => {
+                        UpdateCountBadge(lblDiningCount, diningCount, Color.FromArgb(59, 130, 246));
+                        UpdateCountBadge(lblTakeawayCount, takeawayCount, Color.FromArgb(16, 185, 129));
+                        UpdateCountBadge(lblDeliveryCount, deliveryCount, Color.FromArgb(249, 115, 22));
+                        UpdateCountBadge(lblWaitingCount, waitingCount, Color.FromArgb(234, 179, 8));
+                    }));
+                }
+                else
+                {
+                    UpdateCountBadge(lblDiningCount, diningCount, Color.FromArgb(59, 130, 246));
+                    UpdateCountBadge(lblTakeawayCount, takeawayCount, Color.FromArgb(16, 185, 129));
+                    UpdateCountBadge(lblDeliveryCount, deliveryCount, Color.FromArgb(249, 115, 22));
+                    UpdateCountBadge(lblWaitingCount, waitingCount, Color.FromArgb(234, 179, 8));
+                }
+            }
+            catch
+            {
+                // Ignore transient db polling errors
+            }
         }
     }
 }

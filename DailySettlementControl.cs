@@ -47,6 +47,12 @@ namespace MeroDokan
         private decimal totalQRPayment = 0;
         private decimal totalOnlinePayment = 0;
 
+        // Active running orders check
+        private int activeDiningCount = 0;
+        private int activeTakeawayCount = 0;
+        private int activeDeliveryCount = 0;
+        private int activeWaitingCount = 0;
+
         public DailySettlementControl()
         {
             InitializeComponent();
@@ -295,7 +301,7 @@ namespace MeroDokan
             // Save Settlement Button
             btnSaveSettlement = new Button();
             btnSaveSettlement.Text = "🔒 Save & Close Register";
-            btnSaveSettlement.Size = new Size(210, 42);
+            btnSaveSettlement.Size = new Size(340, 42);
             btnSaveSettlement.Location = new Point(470, 210);
             Theme.StyleSuccessButton(btnSaveSettlement);
             btnSaveSettlement.Click += BtnSaveSettlement_Click;
@@ -368,8 +374,8 @@ namespace MeroDokan
                     string salesSql = @"
                         SELECT ISNULL(SUM(
                             CASE 
-                                WHEN PaymentMethod = 'Cash' THEN AmountPaid 
-                                WHEN PaymentMethod = 'Split' THEN ISNULL(CashAmount, 0)
+                                WHEN PaymentMethod = 'Cash' THEN (CASE WHEN AmountPaid > GrandTotal THEN GrandTotal ELSE AmountPaid END)
+                                WHEN PaymentMethod = 'Split' THEN (CASE WHEN ISNULL(CashAmount, 0) > GrandTotal THEN GrandTotal ELSE ISNULL(CashAmount, 0) END)
                                 ELSE 0 
                             END), 0) 
                         FROM Sales 
@@ -384,7 +390,7 @@ namespace MeroDokan
                     string cardSalesSql = @"
                         SELECT ISNULL(SUM(
                             CASE 
-                                WHEN PaymentMethod = 'Card' THEN AmountPaid 
+                                WHEN PaymentMethod = 'Card' THEN (CASE WHEN AmountPaid > GrandTotal THEN GrandTotal ELSE AmountPaid END)
                                 ELSE 0 
                             END), 0) 
                         FROM Sales 
@@ -399,8 +405,8 @@ namespace MeroDokan
                     string qrSalesSql = @"
                         SELECT ISNULL(SUM(
                             CASE 
-                                WHEN PaymentMethod NOT IN ('Cash', 'Card', 'Split') THEN AmountPaid 
-                                WHEN PaymentMethod = 'Split' THEN ISNULL(OnlineAmount, 0)
+                                WHEN PaymentMethod NOT IN ('Cash', 'Card', 'Split') THEN (CASE WHEN AmountPaid > GrandTotal THEN GrandTotal ELSE AmountPaid END)
+                                WHEN PaymentMethod = 'Split' THEN (CASE WHEN ISNULL(OnlineAmount, 0) > GrandTotal THEN GrandTotal ELSE ISNULL(OnlineAmount, 0) END)
                                 ELSE 0 
                             END), 0) 
                         FROM Sales 
@@ -475,6 +481,28 @@ namespace MeroDokan
                             }
                         }
                     }
+
+                    // 7. Check Active / Running Orders (Dining, Takeaway, Delivery, Waiting)
+                    string activeCheckSql = @"
+                        SELECT 
+                            COUNT(DISTINCT CASE WHEN (k.OrderType = 'DINING' OR k.OrderType IS NULL OR k.OrderType = '') AND k.TableNumber NOT LIKE 'Waiting%' THEN k.TableNumber END) AS DiningCount,
+                            COUNT(DISTINCT CASE WHEN k.OrderType = 'TAKEAWAY' THEN k.TableNumber END) AS TakeawayCount,
+                            COUNT(DISTINCT CASE WHEN k.OrderType = 'DELIVERY' THEN k.TableNumber END) AS DeliveryCount,
+                            COUNT(DISTINCT CASE WHEN k.TableNumber LIKE 'Waiting%' THEN k.TableNumber END) AS WaitingCount
+                        FROM KOTMaster k
+                        INNER JOIN KOTDetails kd ON k.Id = kd.KOTId
+                        WHERE k.Status IN ('Active', 'Served', 'Printed') AND kd.IsVoided = 0";
+                    using (SqlCommand cmd = new SqlCommand(activeCheckSql, conn))
+                    using (SqlDataReader rdr = cmd.ExecuteReader())
+                    {
+                        if (rdr.Read())
+                        {
+                            activeDiningCount = rdr["DiningCount"] != DBNull.Value ? Convert.ToInt32(rdr["DiningCount"]) : 0;
+                            activeTakeawayCount = rdr["TakeawayCount"] != DBNull.Value ? Convert.ToInt32(rdr["TakeawayCount"]) : 0;
+                            activeDeliveryCount = rdr["DeliveryCount"] != DBNull.Value ? Convert.ToInt32(rdr["DeliveryCount"]) : 0;
+                            activeWaitingCount = rdr["WaitingCount"] != DBNull.Value ? Convert.ToInt32(rdr["WaitingCount"]) : 0;
+                        }
+                    }
                 }
 
                 // Calculations
@@ -511,25 +539,98 @@ namespace MeroDokan
 
             decimal variance = actualCash - expectedCash;
 
-            if (Math.Abs(variance) < 0.01m)
+            int totalActive = activeDiningCount + activeTakeawayCount + activeDeliveryCount + activeWaitingCount;
+            if (totalActive > 0)
             {
-                lblStatusMessage.ForeColor = Theme.Success;
-                lblStatusMessage.Text = $"Settlement Closed & Matched! ✓\n(Rs. {actualCash:N2} Matches Rs. {expectedCash:N2})";
-            }
-            else if (variance < 0)
-            {
-                lblStatusMessage.ForeColor = Theme.Danger;
-                lblStatusMessage.Text = $"Cash Shortage! Unmatched by Rs. {Math.Abs(variance):N2}\n(Expected: Rs. {expectedCash:N2} | Actual: Rs. {actualCash:N2})";
+                lblStatusMessage.ForeColor = Color.FromArgb(248, 113, 113); // Soft red alert
+                lblStatusMessage.Text = $"⚠️ Cannot close register! Active orders detected:\nDining: {activeDiningCount} | Takeaway: {activeTakeawayCount} | Delivery: {activeDeliveryCount}\nSettle or void all running orders first.";
+                btnSaveSettlement.BackColor = Color.FromArgb(71, 85, 105);
+                btnSaveSettlement.Text = "🔒 Cannot Close (Orders Active)";
             }
             else
             {
-                lblStatusMessage.ForeColor = Theme.Warning;
-                lblStatusMessage.Text = $"Cash Surplus! Unmatched by Rs. {variance:N2}\n(Expected: Rs. {expectedCash:N2} | Actual: Rs. {actualCash:N2})";
+                btnSaveSettlement.BackColor = Theme.Success;
+                btnSaveSettlement.Text = "🔒 Save & Close Register";
+
+                if (Math.Abs(variance) < 0.01m)
+                {
+                    lblStatusMessage.ForeColor = Theme.Success;
+                    lblStatusMessage.Text = $"Settlement Closed & Matched! ✓\n(Rs. {actualCash:N2} Matches Rs. {expectedCash:N2})";
+                }
+                else if (variance < 0)
+                {
+                    lblStatusMessage.ForeColor = Theme.Danger;
+                    lblStatusMessage.Text = $"Cash Shortage! Unmatched by Rs. {Math.Abs(variance):N2}\n(Expected: Rs. {expectedCash:N2} | Actual: Rs. {actualCash:N2})";
+                }
+                else
+                {
+                    lblStatusMessage.ForeColor = Theme.Warning;
+                    lblStatusMessage.Text = $"Cash Surplus! Unmatched by Rs. {variance:N2}\n(Expected: Rs. {expectedCash:N2} | Actual: Rs. {actualCash:N2})";
+                }
             }
         }
 
         private void BtnSaveSettlement_Click(object sender, EventArgs e)
         {
+            // 1. Live Validation: Check if any Dining, Takeaway, Delivery or Waiting orders are still active
+            int activeDining = 0;
+            int activeTakeaway = 0;
+            int activeDelivery = 0;
+            int activeWaiting = 0;
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
+                {
+                    conn.Open();
+                    string checkSql = @"
+                        SELECT 
+                            COUNT(DISTINCT CASE WHEN (k.OrderType = 'DINING' OR k.OrderType IS NULL OR k.OrderType = '') AND k.TableNumber NOT LIKE 'Waiting%' THEN k.TableNumber END) AS DiningCount,
+                            COUNT(DISTINCT CASE WHEN k.OrderType = 'TAKEAWAY' THEN k.TableNumber END) AS TakeawayCount,
+                            COUNT(DISTINCT CASE WHEN k.OrderType = 'DELIVERY' THEN k.TableNumber END) AS DeliveryCount,
+                            COUNT(DISTINCT CASE WHEN k.TableNumber LIKE 'Waiting%' THEN k.TableNumber END) AS WaitingCount
+                        FROM KOTMaster k
+                        INNER JOIN KOTDetails kd ON k.Id = kd.KOTId
+                        WHERE k.Status IN ('Active', 'Served', 'Printed') AND kd.IsVoided = 0";
+
+                    using (SqlCommand cmd = new SqlCommand(checkSql, conn))
+                    using (SqlDataReader r = cmd.ExecuteReader())
+                    {
+                        if (r.Read())
+                        {
+                            activeDining = r["DiningCount"] != DBNull.Value ? Convert.ToInt32(r["DiningCount"]) : 0;
+                            activeTakeaway = r["TakeawayCount"] != DBNull.Value ? Convert.ToInt32(r["TakeawayCount"]) : 0;
+                            activeDelivery = r["DeliveryCount"] != DBNull.Value ? Convert.ToInt32(r["DeliveryCount"]) : 0;
+                            activeWaiting = r["WaitingCount"] != DBNull.Value ? Convert.ToInt32(r["WaitingCount"]) : 0;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error validating active orders: {ex.Message}", "Verification Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            int totalActive = activeDining + activeTakeaway + activeDelivery + activeWaiting;
+            if (totalActive > 0)
+            {
+                string msg = "Cannot close the Daily Cash Register while there are active running orders!\n\n" +
+                             "Currently Active Orders:\n" +
+                             $" • Dining Tables: {activeDining}\n" +
+                             $" • Take Away Orders: {activeTakeaway}\n" +
+                             $" • Delivery Orders: {activeDelivery}\n";
+                if (activeWaiting > 0)
+                {
+                    msg += $" • Waiting Orders: {activeWaiting}\n";
+                }
+                msg += "\nPlease settle all bills or void unused orders before closing the daily register.";
+
+                MessageBox.Show(msg, "Active Orders Pending - Cannot Close Register", MessageBoxButtons.OK, MessageBoxIcon.Stop);
+                LoadTodayMetrics();
+                return;
+            }
+
             decimal actualCash = 0;
             if (!decimal.TryParse(txtActualCash.Text.Trim(), out actualCash) || actualCash < 0)
             {

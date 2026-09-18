@@ -23,20 +23,24 @@ namespace MeroDokan
         private Button btnSettleOnly;
         private Button btnCancel;
         private CheckBox chkPrintBill;
+        private FlowLayoutPanel cashFlow;
 
         public decimal NetTotal { get; private set; }
         public decimal AmountPaid { get; private set; }
+        public decimal TenderedAmount { get; private set; }
         public decimal ChangeDue { get; private set; }
         public string PaymentMethod { get; private set; } = "Cash";
         public string CustomerName { get; private set; } = "Walk-in Guest";
         public string CustomerPhone { get; private set; } = "";
         public bool ShouldPrintReceipt { get; private set; } = true;
+        private string initialPaymentMethod = "Cash";
 
-        public SettlePaymentDialog(decimal netTotal, string custName = "", string custPhone = "")
+        public SettlePaymentDialog(decimal netTotal, string custName = "", string custPhone = "", string defaultMethod = "Cash")
         {
             NetTotal = Math.Round(netTotal, 0); // Rounded invoice value
             CustomerName = string.IsNullOrEmpty(custName) ? "Walk-in Guest" : custName;
             CustomerPhone = custPhone ?? "";
+            initialPaymentMethod = string.IsNullOrEmpty(defaultMethod) ? "Cash" : defaultMethod;
 
             InitializeComponent();
             CalculateChange();
@@ -145,14 +149,37 @@ namespace MeroDokan
                 BackColor = Theme.InputBg,
                 ForeColor = Theme.TextLight
             };
-            cmbPaymentMethod.Items.AddRange(new object[] { "Cash", "UPI / QR Pay", "Card", "Split Payment", "Due / Credit" });
-            cmbPaymentMethod.SelectedIndex = 0;
+            cmbPaymentMethod.Items.AddRange(new object[] { "Cash", "UPI / QR Pay", "Card", "Split", "Due / Credit" });
+            int selIdx = 0;
+            if (initialPaymentMethod.IndexOf("UPI", StringComparison.OrdinalIgnoreCase) >= 0) selIdx = 1;
+            else if (initialPaymentMethod.IndexOf("Card", StringComparison.OrdinalIgnoreCase) >= 0) selIdx = 2;
+            else if (initialPaymentMethod.IndexOf("Split", StringComparison.OrdinalIgnoreCase) >= 0) selIdx = 3;
+            else if (initialPaymentMethod.IndexOf("Due", StringComparison.OrdinalIgnoreCase) >= 0 || initialPaymentMethod.IndexOf("Credit", StringComparison.OrdinalIgnoreCase) >= 0) selIdx = 4;
+            cmbPaymentMethod.SelectedIndex = selIdx;
             cmbPaymentMethod.SelectedIndexChanged += (s, e) => {
                 PaymentMethod = cmbPaymentMethod.SelectedItem.ToString();
-                if (PaymentMethod != "Cash")
+                if (PaymentMethod == "Due / Credit")
+                {
+                    txtPaidAmount.Text = "0";
+                    txtPaidAmount.Enabled = false;
+                    if (cashFlow != null) cashFlow.Enabled = false;
+                }
+                else if (PaymentMethod != "Cash")
                 {
                     txtPaidAmount.Text = NetTotal.ToString("0");
+                    txtPaidAmount.Enabled = false;
+                    if (cashFlow != null) cashFlow.Enabled = false;
                 }
+                else
+                {
+                    txtPaidAmount.Enabled = true;
+                    if (cashFlow != null) cashFlow.Enabled = true;
+                    if (string.IsNullOrWhiteSpace(txtPaidAmount.Text) || txtPaidAmount.Text == "0")
+                    {
+                        txtPaidAmount.Text = NetTotal.ToString("0");
+                    }
+                }
+                CalculateChange();
             };
             this.Controls.Add(cmbPaymentMethod);
 
@@ -180,7 +207,7 @@ namespace MeroDokan
             this.Controls.Add(txtPaidAmount);
 
             // Quick Cash Tender Buttons
-            FlowLayoutPanel cashFlow = new FlowLayoutPanel
+            cashFlow = new FlowLayoutPanel
             {
                 Location = new Point(20, 235),
                 Size = new Size(485, 45),
@@ -332,14 +359,40 @@ namespace MeroDokan
 
         private void CalculateChange()
         {
-            if (decimal.TryParse(txtPaidAmount.Text.Trim(), out decimal paid))
+            if (decimal.TryParse(txtPaidAmount.Text.Trim(), out decimal tender))
             {
-                AmountPaid = paid;
-                ChangeDue = Math.Max(0, paid - NetTotal);
-                lblChangeDue.Text = $"₹{ChangeDue:0.00}";
+                TenderedAmount = Math.Max(0, tender);
+                if (PaymentMethod == "Due / Credit")
+                {
+                    AmountPaid = 0;
+                    ChangeDue = 0;
+                    lblChangeDue.Text = "₹0.00";
+                }
+                else if (PaymentMethod == "Cash")
+                {
+                    if (TenderedAmount >= NetTotal)
+                    {
+                        AmountPaid = NetTotal;
+                        ChangeDue = TenderedAmount - NetTotal;
+                        lblChangeDue.Text = $"₹{ChangeDue:0.00}";
+                    }
+                    else
+                    {
+                        AmountPaid = TenderedAmount;
+                        ChangeDue = 0;
+                        lblChangeDue.Text = "₹0.00";
+                    }
+                }
+                else
+                {
+                    AmountPaid = NetTotal;
+                    ChangeDue = 0;
+                    lblChangeDue.Text = "₹0.00";
+                }
             }
             else
             {
+                TenderedAmount = 0;
                 AmountPaid = 0;
                 ChangeDue = 0;
                 lblChangeDue.Text = "₹0.00";
@@ -348,16 +401,17 @@ namespace MeroDokan
 
         private void FinishSettlement()
         {
-            if (AmountPaid < NetTotal && PaymentMethod == "Cash")
+            if (PaymentMethod == "Cash" && TenderedAmount < NetTotal)
             {
-                var res = MessageBox.Show($"Tendered cash (₹{AmountPaid}) is less than net total (₹{NetTotal}). Mark balance as Due?", "Underpayment", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                decimal dueBal = NetTotal - TenderedAmount;
+                var res = MessageBox.Show($"Tendered cash (₹{TenderedAmount:N2}) is less than net total (₹{NetTotal:N2}). Mark remaining balance of ₹{dueBal:N2} as Due?", "Underpayment", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
                 if (res != DialogResult.Yes) return;
             }
 
             CustomerName = txtCustomerName.Text.Trim();
             CustomerPhone = txtCustomerPhone.Text.Trim();
             PaymentMethod = cmbPaymentMethod.SelectedItem.ToString();
-            ShouldPrintReceipt = chkPrintBill.Checked;
+            ShouldPrintReceipt = ShouldPrintReceipt && (chkPrintBill?.Checked ?? false);
 
             this.DialogResult = DialogResult.OK;
             this.Close();
