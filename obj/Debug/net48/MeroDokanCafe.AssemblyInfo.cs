@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MeroDokanCafe")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+bd1525cab4a5688fd2990b66465382b7fcc172c2")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ad6fef7faccf42a4e937ed25af1bee79d5576c19")]
 [assembly: System.Reflection.AssemblyProductAttribute("MeroDokanCafe")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MeroDokanCafe")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -124,7 +124,25 @@ namespace MeroDokan
             picLogoIcon.Location = new Point(12, 14);
             picLogoIcon.SizeMode = PictureBoxSizeMode.Zoom;
             picLogoIcon.BackColor = Color.Transparent;
-            picLogoIcon.Visible = false;
+            
+            try
+            {
+                string logoPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "logo_transparent.png");
+                if (!System.IO.File.Exists(logoPath)) logoPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "logo.jpg");
+                if (System.IO.File.Exists(logoPath))
+                {
+                    picLogoIcon.Image = Image.FromFile(logoPath);
+                    picLogoIcon.Visible = true;
+                }
+                else
+                {
+                    picLogoIcon.Visible = false;
+                }
+            }
+            catch
+            {
+                picLogoIcon.Visible = false;
+            }
             sidebarTopPanel.Controls.Add(picLogoIcon);
 
             lblLogoIcon = new Label();
@@ -134,6 +152,7 @@ namespace MeroDokan
             lblLogoIcon.Location = new Point(12, 14);
             lblLogoIcon.Size = new Size(38, 38);
             lblLogoIcon.TextAlign = ContentAlignment.MiddleCenter;
+            lblLogoIcon.Visible = !picLogoIcon.Visible;
             sidebarTopPanel.Controls.Add(lblLogoIcon);
 
             lblLogoTitle = new Label();
