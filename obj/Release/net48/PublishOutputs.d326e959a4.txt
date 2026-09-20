@@ -1,0 +1,13 @@
+D:\Bhawani Works\Project All\MeroDokanCafe\publish\app_icon.ico
+D:\Bhawani Works\Project All\MeroDokanCafe\publish\dbconfig.txt
+D:\Bhawani Works\Project All\MeroDokanCafe\publish\Assets\logo.jpg
+D:\Bhawani Works\Project All\MeroDokanCafe\publish\Assets\logo.png
+D:\Bhawani Works\Project All\MeroDokanCafe\publish\Assets\logo.svg
+D:\Bhawani Works\Project All\MeroDokanCafe\publish\Assets\logo_circular_clean.png
+D:\Bhawani Works\Project All\MeroDokanCafe\publish\Assets\logo_transparent.png
+D:\Bhawani Works\Project All\MeroDokanCafe\publish\Assets\preview_threshold.png
+D:\Bhawani Works\Project All\MeroDokanCafe\publish\MeroDokanCafe.exe
+D:\Bhawani Works\Project All\MeroDokanCafe\publish\MeroDokanCafe.exe.config
+D:\Bhawani Works\Project All\MeroDokanCafe\publish\MeroDokanCafe.pdb
+D:\Bhawani Works\Project All\MeroDokanCafe\publish\QRCoder.dll
+D:\Bhawani Works\Project All\MeroDokanCafe\publish\System.Data.SqlClient.dll

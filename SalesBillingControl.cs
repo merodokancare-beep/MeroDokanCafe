@@ -154,6 +154,7 @@ namespace MeroDokan
         private ContextMenuStrip stewardMenu;
         private Button btnBackToFloor;
         private Button btnShiftTable;
+        private Button btnCancelOrder;
         private Button btnModeDining;
         private Button btnModeTakeaway;
         private Button btnModeDelivery;
@@ -175,6 +176,10 @@ namespace MeroDokan
         private decimal currentPackingCharge = 0.0m;
 
         // Right Order & KOT Panel Controls
+        private Panel kotHeaderPanel;
+        private Label lblKotOrderInfo;
+        private Button btnKotSteward;
+        private Button btnQuickCounter;
         private FlowLayoutPanel kotItemsContainer;
         private Label lblTotalQty;
         private Label lblSubTotalTitle;
@@ -224,6 +229,23 @@ namespace MeroDokan
         {
             ActiveTableNumber = string.IsNullOrEmpty(tableNum) ? "1" : tableNum;
             ActiveOrderType = string.IsNullOrEmpty(orderType) ? "DINING" : orderType;
+
+            if (lblKotOrderInfo != null)
+            {
+                if (ActiveOrderType == "TAKEAWAY")
+                    lblKotOrderInfo.Text = $"🛍️ Takeaway Token {ActiveTableNumber}";
+                else if (ActiveOrderType == "DELIVERY")
+                    lblKotOrderInfo.Text = $"🛵 Delivery #{ActiveTableNumber}";
+                else if (ActiveTableNumber.StartsWith("Waiting", StringComparison.OrdinalIgnoreCase))
+                    lblKotOrderInfo.Text = $"⏳ Waiting #{ActiveTableNumber}";
+                else
+                    lblKotOrderInfo.Text = $"🍽️ Table {ActiveTableNumber} • Dining";
+            }
+
+            if (ActiveOrderType != "DINING")
+            {
+                cmbSteward.SelectedItem = "Direct Counter";
+            }
 
             packingChargePanel.Visible = (ActiveOrderType == "TAKEAWAY");
             if (ActiveOrderType == "TAKEAWAY" && currentPackingCharge == 0)
@@ -290,6 +312,28 @@ namespace MeroDokan
                 }
             }
             catch { }
+
+            if (ActiveOrderType == "DINING" && cartItems.Count == 0)
+            {
+                try
+                {
+                    using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
+                    {
+                        conn.Open();
+                        using (SqlCommand cmd = new SqlCommand("SELECT CurrentSteward FROM CafeTables WHERE TableNumber = @tNum", conn))
+                        {
+                            cmd.Parameters.AddWithValue("@tNum", ActiveTableNumber);
+                            object res = cmd.ExecuteScalar();
+                            if (res != null && res != DBNull.Value && !string.IsNullOrWhiteSpace(res.ToString()))
+                            {
+                                cmbSteward.SelectedItem = res.ToString();
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+            UpdateStewardButtonText();
 
             UpdateSubBillsHeader();
             RefreshOrderCartView();
@@ -570,33 +614,7 @@ namespace MeroDokan
             };
             btnSteward.FlatAppearance.BorderSize = 1;
             btnSteward.FlatAppearance.BorderColor = Color.FromArgb(51, 65, 85);
-            btnSteward.Click += (s, e) => {
-                stewardMenu.Items.Clear();
-                foreach (var it in cmbSteward.Items)
-                {
-                    string stwdName = it.ToString();
-                    var mi = new ToolStripMenuItem(stwdName);
-                    mi.ForeColor = Color.White;
-                    mi.BackColor = Color.FromArgb(20, 27, 42);
-                    if (cmbSteward.SelectedItem?.ToString() == stwdName)
-                    {
-                        mi.Text = $"✓  {stwdName}";
-                        mi.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-                        mi.ForeColor = Theme.Accent;
-                    }
-                    else
-                    {
-                        mi.Text = $"    {stwdName}";
-                        mi.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
-                    }
-                    mi.Click += (ms, me) => {
-                        cmbSteward.SelectedItem = stwdName;
-                        UpdateStewardButtonText();
-                    };
-                    stewardMenu.Items.Add(mi);
-                }
-                stewardMenu.Show(btnSteward, new Point(0, btnSteward.Height));
-            };
+            btnSteward.Click += (s, e) => ShowStewardMenu(btnSteward);
             topRightFlow.Controls.Add(btnSteward);
 
             // Mode Switch Buttons
@@ -609,6 +627,14 @@ namespace MeroDokan
             topRightFlow.Controls.Add(btnModeDining);
 
             topBarPanel.Controls.Add(topRightFlow);
+
+            topBarPanel.SizeChanged += (s, e) => {
+                if (topLeftFlow != null && topRightFlow != null)
+                {
+                    int maxLeft = Math.Max(200, topBarPanel.ClientSize.Width - topRightFlow.Width - 10);
+                    topLeftFlow.MaximumSize = new Size(maxLeft, topBarPanel.ClientSize.Height);
+                }
+            };
 
             // ================= 2. RIGHT ORDER & KOT CART PANEL =================
             rightOrderPanel = new Panel
@@ -1124,6 +1150,21 @@ namespace MeroDokan
             btnKotComment.Click += BtnKotComment_Click;
             checkoutPanel.Controls.Add(btnKotComment);
 
+            btnCancelOrder = new Button
+            {
+                Text = "🚫 Cancel",
+                Location = new Point(282, 6),
+                Size = new Size(88, 28),
+                BackColor = Color.FromArgb(153, 27, 27), // Crimson Red
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand
+            };
+            btnCancelOrder.FlatAppearance.BorderSize = 0;
+            btnCancelOrder.Click += BtnCancelOrder_Click;
+            checkoutPanel.Controls.Add(btnCancelOrder);
+
             lblTotalQty = new Label { Visible = false };
             checkoutPanel.Controls.Add(lblTotalQty);
 
@@ -1317,12 +1358,18 @@ namespace MeroDokan
             // Responsive resize handling
             checkoutPanel.SizeChanged += (s, e) => {
                 int pw = checkoutPanel.ClientSize.Width - 20;
-                if (pw < 220) pw = 220;
+                if (pw < 100) return;
+                int spacing = 6;
+                int cancelBtnW = Math.Max(75, pw * 25 / 100);
+                int noteBtnW = Math.Max(65, pw * 23 / 100);
+                int kotBtnW = pw - cancelBtnW - noteBtnW - (spacing * 2);
 
-                int kotBtnW = (pw - 6) * 55 / 100;
+                btnPrintKot.Location = new Point(10, 6);
                 btnPrintKot.Size = new Size(kotBtnW, 28);
-                btnKotComment.Location = new Point(10 + kotBtnW + 6, 6);
-                btnKotComment.Size = new Size(pw - kotBtnW - 6, 28);
+                btnKotComment.Location = new Point(10 + kotBtnW + spacing, 6);
+                btnKotComment.Size = new Size(noteBtnW, 28);
+                btnCancelOrder.Location = new Point(10 + kotBtnW + spacing + noteBtnW + spacing, 6);
+                btnCancelOrder.Size = new Size(cancelBtnW, 28);
 
                 lblSubTotal.Location = new Point(10 + pw - 130, 38);
                 lblDiscount.Location = new Point(10 + pw - 130, 68);
@@ -1350,6 +1397,71 @@ namespace MeroDokan
                 btnPayPrint.Size = new Size(pw, 46);
             };
 
+            // Top KOT Header Panel (Order Info + Steward + Quick Counter button)
+            kotHeaderPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 46,
+                BackColor = Color.FromArgb(20, 27, 45),
+                Padding = new Padding(8, 6, 8, 6)
+            };
+            kotHeaderPanel.Paint += (s, e) => {
+                using (Pen p = new Pen(Theme.CardBorder, 1))
+                    e.Graphics.DrawLine(p, 0, kotHeaderPanel.Height - 1, kotHeaderPanel.Width, kotHeaderPanel.Height - 1);
+            };
+
+            lblKotOrderInfo = new Label
+            {
+                Text = "🍽️ Table 1 • Dining",
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                ForeColor = Theme.Accent,
+                Location = new Point(8, 12),
+                AutoSize = true
+            };
+            kotHeaderPanel.Controls.Add(lblKotOrderInfo);
+
+            btnQuickCounter = new Button
+            {
+                Text = "🏪 Counter",
+                Size = new Size(82, 32),
+                Location = new Point(kotHeaderPanel.Width - 90, 7),
+                Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(30, 41, 59),
+                ForeColor = Color.White,
+                Cursor = Cursors.Hand
+            };
+            btnQuickCounter.FlatAppearance.BorderSize = 1;
+            btnQuickCounter.FlatAppearance.BorderColor = Color.FromArgb(51, 65, 85);
+            btnQuickCounter.Click += (s, e) => {
+                cmbSteward.SelectedItem = "Direct Counter";
+                UpdateStewardButtonText();
+            };
+            kotHeaderPanel.Controls.Add(btnQuickCounter);
+
+            btnKotSteward = new Button
+            {
+                Text = "👤 Steward ▾",
+                Size = new Size(130, 32),
+                Location = new Point(kotHeaderPanel.Width - 226, 7),
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(30, 41, 59),
+                ForeColor = Color.White,
+                Cursor = Cursors.Hand
+            };
+            btnKotSteward.FlatAppearance.BorderSize = 1;
+            btnKotSteward.FlatAppearance.BorderColor = Color.FromArgb(51, 65, 85);
+            btnKotSteward.Click += (s, e) => ShowStewardMenu(btnKotSteward);
+            kotHeaderPanel.Controls.Add(btnKotSteward);
+
+            kotHeaderPanel.SizeChanged += (s, e) => {
+                int w = kotHeaderPanel.ClientSize.Width;
+                btnQuickCounter.Location = new Point(w - 90, 7);
+                btnKotSteward.Location = new Point(w - 226, 7);
+            };
+
+            rightOrderPanel.Controls.Add(kotHeaderPanel);
             rightOrderPanel.Controls.Add(checkoutPanel);
 
             // Items List Container
@@ -1364,6 +1476,7 @@ namespace MeroDokan
             };
             rightOrderPanel.Controls.Add(kotItemsContainer);
 
+            kotHeaderPanel.SendToBack();
             checkoutPanel.SendToBack();
             kotItemsContainer.BringToFront();
         }
@@ -1484,13 +1597,60 @@ namespace MeroDokan
             }
         }
 
+        private void ShowStewardMenu(Control anchor)
+        {
+            if (stewardMenu == null) return;
+            stewardMenu.Items.Clear();
+            foreach (var it in cmbSteward.Items)
+            {
+                string stwdName = it.ToString();
+                var mi = new ToolStripMenuItem(stwdName);
+                mi.ForeColor = Color.White;
+                mi.BackColor = Color.FromArgb(20, 27, 42);
+                bool isSel = (cmbSteward.SelectedItem?.ToString() == stwdName);
+                if (isSel)
+                {
+                    mi.Text = $"✓  {stwdName}";
+                    mi.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+                    mi.ForeColor = Theme.Accent;
+                }
+                else
+                {
+                    mi.Text = $"    {stwdName}";
+                    mi.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
+                }
+                mi.Click += (ms, me) => {
+                    cmbSteward.SelectedItem = stwdName;
+                    UpdateStewardButtonText();
+                };
+                stewardMenu.Items.Add(mi);
+            }
+            stewardMenu.Show(anchor, new Point(0, anchor.Height));
+        }
+
         private void UpdateStewardButtonText()
         {
             string selected = cmbSteward.SelectedItem?.ToString();
-            if (string.IsNullOrEmpty(selected)) selected = "Steward";
+            if (string.IsNullOrEmpty(selected)) selected = "Direct Counter";
+
+            bool isCounter = (selected == "Direct Counter");
+
             if (btnSteward != null)
             {
-                btnSteward.Text = $"👤 {selected} ▾";
+                btnSteward.Text = isCounter ? "🏪 Counter ▾" : $"👤 {selected} ▾";
+                btnSteward.BackColor = isCounter ? Color.FromArgb(24, 32, 50) : Color.FromArgb(30, 41, 59);
+            }
+
+            if (btnKotSteward != null)
+            {
+                btnKotSteward.Text = isCounter ? "🏪 Counter ▾" : $"👤 {selected} ▾";
+                btnKotSteward.ForeColor = isCounter ? Theme.Accent : Color.White;
+            }
+
+            if (btnQuickCounter != null)
+            {
+                btnQuickCounter.BackColor = isCounter ? Theme.Accent : Color.FromArgb(30, 41, 59);
+                btnQuickCounter.ForeColor = isCounter ? Color.Black : Color.White;
             }
         }
 
@@ -1499,10 +1659,12 @@ namespace MeroDokan
             try
             {
                 cmbSteward.Items.Clear();
+                cmbSteward.Items.Add("Direct Counter");
+
                 using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
                 {
                     conn.Open();
-                    using (SqlCommand cmd = new SqlCommand("SELECT Name FROM Staff WHERE IsActive = 1 ORDER BY Name", conn))
+                    using (SqlCommand cmd = new SqlCommand("SELECT Name FROM Staff WHERE IsActive = 1 AND Name <> 'Direct Counter' ORDER BY Name", conn))
                     using (SqlDataReader r = cmd.ExecuteReader())
                     {
                         while (r.Read())
@@ -1512,7 +1674,7 @@ namespace MeroDokan
                     }
                 }
 
-                if (cmbSteward.Items.Count > 0)
+                if (cmbSteward.Items.Count > 0 && cmbSteward.SelectedIndex < 0)
                     cmbSteward.SelectedIndex = 0;
 
                 UpdateStewardButtonText();
@@ -1994,17 +2156,27 @@ namespace MeroDokan
                     {
                         try
                         {
+                            string reason = !string.IsNullOrWhiteSpace(dlg.Comment) ? dlg.Comment : (dlg.SelectedReason ?? "Item Voided");
+
                             using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
                             {
                                 conn.Open();
                                 string sql = @"
                                     UPDATE KOTDetails 
                                     SET IsVoided = 1, VoidReason = @reason, VoidedAt = GETDATE()
-                                    WHERE KOTId = @kotId AND ItemName = @name";
+                                    WHERE KOTId = @kotId AND ItemName = @name;
+
+                                    -- If all items in this KOT ticket are now voided, mark KOTMaster as Voided too
+                                    IF NOT EXISTS (SELECT 1 FROM KOTDetails WHERE KOTId = @kotId AND IsVoided = 0)
+                                    BEGIN
+                                        UPDATE KOTMaster 
+                                        SET Status = 'Voided', IsVoided = 1, VoidReason = @reason, VoidedAt = GETDATE()
+                                        WHERE Id = @kotId;
+                                    END";
 
                                 using (SqlCommand cmd = new SqlCommand(sql, conn))
                                 {
-                                    cmd.Parameters.AddWithValue("@reason", dlg.Comment);
+                                    cmd.Parameters.AddWithValue("@reason", reason);
                                     cmd.Parameters.AddWithValue("@kotId", item.KotId);
                                     cmd.Parameters.AddWithValue("@name", item.ItemName);
                                     cmd.ExecuteNonQuery();
@@ -2013,17 +2185,233 @@ namespace MeroDokan
 
                             if (dlg.ShouldPrintSlip)
                             {
-                                ThermalReceiptPrinter.PrintVoidKOT(item.KotId, dlg.Comment);
+                                ThermalReceiptPrinter.PrintVoidKOT(item.KotId, reason);
                             }
 
                             cartItems.Remove(item);
                             RefreshOrderCartView();
                             UpdateTableSummaryInDb();
+                            MainForm.Instance?.RefreshLiveOrderCounts();
                         }
                         catch (Exception ex)
                         {
                             MessageBox.Show($"Failed to void item: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         }
+                    }
+                }
+            }
+        }
+
+        private void BtnCancelOrder_Click(object sender, EventArgs e)
+        {
+            CancelCurrentOrderOrVoidKot();
+        }
+
+        public void CancelCurrentOrderOrVoidKot()
+        {
+            if (cartItems.Count == 0)
+            {
+                // Also check if there's any active KOT on this table in DB
+                bool hasActiveKotInDb = false;
+                try
+                {
+                    using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
+                    {
+                        conn.Open();
+                        using (SqlCommand cmd = new SqlCommand(@"
+                            SELECT COUNT(1) FROM KOTMaster 
+                            WHERE TableNumber = @tNum 
+                              AND Status IN ('Active', 'Served', 'Printed')
+                              AND (OrderType = @type OR (@type = 'DINING' AND (OrderType IS NULL OR OrderType = '')))", conn))
+                        {
+                            cmd.Parameters.AddWithValue("@tNum", ActiveTableNumber);
+                            cmd.Parameters.AddWithValue("@type", ActiveOrderType);
+                            hasActiveKotInDb = Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+                        }
+                    }
+                }
+                catch { }
+
+                if (!hasActiveKotInDb)
+                {
+                    MessageBox.Show("There is no active order or KOT on this table to cancel.", "No Active Order", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+            }
+
+            bool hasCommittedKots = cartItems.Any(x => x.IsCommittedToKot);
+            if (!hasCommittedKots)
+            {
+                try
+                {
+                    using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
+                    {
+                        conn.Open();
+                        using (SqlCommand cmd = new SqlCommand(@"
+                            SELECT COUNT(1) FROM KOTMaster 
+                            WHERE TableNumber = @tNum 
+                              AND Status IN ('Active', 'Served', 'Printed')", conn))
+                        {
+                            cmd.Parameters.AddWithValue("@tNum", ActiveTableNumber);
+                            hasCommittedKots = Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            if (!hasCommittedKots)
+            {
+                // Unsaved cart only: Simple confirmation
+                var confirm = MessageBox.Show(
+                    $"Cancel unsaved items and clear {ActiveOrderType} order for Table/Token {ActiveTableNumber}?",
+                    "Clear Unsaved Order",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+
+                if (confirm == DialogResult.Yes)
+                {
+                    cartItems.Clear();
+                    RefreshOrderCartView();
+                    UpdateTableSummaryInDb();
+                    OnNavigateToFloor?.Invoke();
+                }
+                return;
+            }
+
+            // Committed KOT exists! Prompt Void Dialog with Reason
+            int totalQty = cartItems.Where(x => x.IsCommittedToKot).Sum(x => x.Quantity);
+            decimal totalAmt = cartItems.Where(x => x.IsCommittedToKot).Sum(x => x.LineTotal);
+            string summaryTitle = $"Table {ActiveTableNumber} ({cartItems.Count} items, ₹{totalAmt:N0})";
+
+            using (VoidKotDialog dlg = new VoidKotDialog(summaryTitle, totalQty > 0 ? totalQty : 1))
+            {
+                if (dlg.ShowDialog() == DialogResult.OK)
+                {
+                    string reason = !string.IsNullOrWhiteSpace(dlg.Comment) ? dlg.Comment : (dlg.SelectedReason ?? "Order Cancelled by Customer");
+                    List<int> affectedKotIds = new List<int>();
+
+                    try
+                    {
+                        using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
+                        {
+                            conn.Open();
+                            using (SqlTransaction trans = conn.BeginTransaction())
+                            {
+                                try
+                                {
+                                    // 1. Find all active KOT IDs for this table
+                                    string findKotsSql = @"
+                                        SELECT Id FROM KOTMaster 
+                                        WHERE TableNumber = @tNum 
+                                          AND Status IN ('Active', 'Served', 'Printed')
+                                          AND (OrderType = @type OR (@type = 'DINING' AND (OrderType IS NULL OR OrderType = '')))";
+
+                                    using (SqlCommand cmd = new SqlCommand(findKotsSql, conn, trans))
+                                    {
+                                        cmd.Parameters.AddWithValue("@tNum", ActiveTableNumber);
+                                        cmd.Parameters.AddWithValue("@type", ActiveOrderType);
+                                        using (SqlDataReader rdr = cmd.ExecuteReader())
+                                        {
+                                            while (rdr.Read())
+                                            {
+                                                affectedKotIds.Add(Convert.ToInt32(rdr["Id"]));
+                                            }
+                                        }
+                                    }
+
+                                    // 2. Update KOTDetails to Voided with Reason
+                                    if (affectedKotIds.Count > 0)
+                                    {
+                                        string kotIdList = string.Join(",", affectedKotIds);
+                                        string updateDetailsSql = $@"
+                                            UPDATE KOTDetails
+                                            SET IsVoided = 1,
+                                                VoidReason = @reason,
+                                                VoidedAt = GETDATE()
+                                            WHERE KOTId IN ({kotIdList}) AND IsVoided = 0";
+
+                                        using (SqlCommand cmd = new SqlCommand(updateDetailsSql, conn, trans))
+                                        {
+                                            cmd.Parameters.AddWithValue("@reason", reason);
+                                            cmd.ExecuteNonQuery();
+                                        }
+
+                                        // 3. Update KOTMaster to Voided
+                                        string updateMasterSql = $@"
+                                            UPDATE KOTMaster
+                                            SET Status = 'Voided',
+                                                IsVoided = 1,
+                                                VoidReason = @reason,
+                                                VoidedAt = GETDATE(),
+                                                KotComment = ISNULL(KotComment + ' | ', '') + 'CANCELLED: ' + @reason
+                                            WHERE Id IN ({kotIdList})";
+
+                                        using (SqlCommand cmd = new SqlCommand(updateMasterSql, conn, trans))
+                                        {
+                                            cmd.Parameters.AddWithValue("@reason", reason);
+                                            cmd.ExecuteNonQuery();
+                                        }
+                                    }
+
+                                    // 4. Reset CafeTables row
+                                    string resetTableSql = @"
+                                        UPDATE CafeTables
+                                        SET Status = 'Available',
+                                            CurrentBillAmount = 0.00,
+                                            ActiveKotNumbers = NULL,
+                                            CurrentSteward = NULL,
+                                            OrderStartTime = NULL
+                                        WHERE TableNumber = @tNum";
+
+                                    using (SqlCommand cmd = new SqlCommand(resetTableSql, conn, trans))
+                                    {
+                                        cmd.Parameters.AddWithValue("@tNum", ActiveTableNumber);
+                                        cmd.ExecuteNonQuery();
+                                    }
+
+                                    trans.Commit();
+                                }
+                                catch
+                                {
+                                    trans.Rollback();
+                                    throw;
+                                }
+                            }
+                        }
+
+                        // 5. Print Void KOT slip to Kitchen Printer if requested
+                        if (dlg.ShouldPrintSlip && affectedKotIds.Count > 0)
+                        {
+                            foreach (int kId in affectedKotIds)
+                            {
+                                try
+                                {
+                                    ThermalReceiptPrinter.PrintVoidKOT(kId, reason);
+                                }
+                                catch { }
+                            }
+                        }
+
+                        // 6. Clear local cart & refresh views
+                        cartItems.Clear();
+                        currentKotComment = "";
+                        currentDiscountAmount = 0;
+                        RefreshOrderCartView();
+
+                        MainForm.Instance?.RefreshLiveOrderCounts();
+
+                        MessageBox.Show(
+                            $"Order for Table {ActiveTableNumber} has been successfully CANCELLED and VOIDED.\n\nReason: {reason}\nAudit record saved to KOT & Reports Register.\nTable is now Available.",
+                            "Order Cancelled & Voided",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Information);
+
+                        OnNavigateToFloor?.Invoke();
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Failed to cancel order: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
                 }
             }
@@ -2064,7 +2452,7 @@ namespace MeroDokan
                     }
 
                     // Insert KOT Master
-                    string steward = cmbSteward.SelectedItem?.ToString() ?? "Tashi";
+                    string steward = cmbSteward.SelectedItem?.ToString() ?? "Direct Counter";
                     string insKotSql = @"
                         INSERT INTO KOTMaster (KOTNumber, TableNumber, OrderType, Steward, Status, KotComment, CreatedAt)
                         VALUES (@num, @tNum, @type, @stwd, 'Active', @note, GETDATE());
@@ -2136,7 +2524,7 @@ namespace MeroDokan
                 decimal netRunning = Math.Max(0, totalGross - currentDiscountAmount);
 
                 string kots = string.Join(",", cartItems.Where(x => x.KotNumber > 0).Select(x => x.KotNumber.ToString()).Distinct());
-                string steward = cmbSteward.SelectedItem?.ToString() ?? "Tashi";
+                string steward = cmbSteward.SelectedItem?.ToString() ?? "Direct Counter";
 
                 using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
                 {
@@ -2196,7 +2584,7 @@ namespace MeroDokan
                         int saleId = 0;
                         string settledInvNumber = "";
                         string kots = string.Join(",", cartItems.Where(x => x.KotNumber > 0).Select(x => x.KotNumber.ToString()).Distinct());
-                        string steward = cmbSteward.SelectedItem?.ToString() ?? "Tashi";
+                        string steward = cmbSteward.SelectedItem?.ToString() ?? "Direct Counter";
 
                         using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
                         {
@@ -2211,8 +2599,8 @@ namespace MeroDokan
 
                                     decimal paidAmt = Math.Min(grandTotal, Math.Max(0, dlg.AmountPaid));
                                     decimal dueAmt = Math.Max(0, grandTotal - paidAmt);
-                                    decimal cashAmt = (dlg.PaymentMethod == "Cash") ? paidAmt : 0m;
-                                    decimal onlineAmt = (dlg.PaymentMethod == "Card" || dlg.PaymentMethod == "UPI / QR Pay" || dlg.PaymentMethod == "Online") ? paidAmt : 0m;
+                                    decimal cashAmt = (dlg.PaymentMethod == "Cash") ? paidAmt : (dlg.PaymentMethod == "Split" ? dlg.CashAmount : 0m);
+                                    decimal onlineAmt = (dlg.PaymentMethod == "Card" || dlg.PaymentMethod == "UPI / QR Pay" || dlg.PaymentMethod == "Online") ? paidAmt : (dlg.PaymentMethod == "Split" ? dlg.OnlineAmount : 0m);
 
                                     // 2. Insert Sales Record
                                     string insSaleSql = @"
@@ -2398,7 +2786,7 @@ namespace MeroDokan
             }
         }
 
-        private class DarkMenuRenderer : ToolStripProfessionalRenderer
+        public class DarkMenuRenderer : ToolStripProfessionalRenderer
         {
             public DarkMenuRenderer() : base(new DarkMenuColors()) { }
             private class DarkMenuColors : ProfessionalColorTable

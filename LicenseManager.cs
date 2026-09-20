@@ -259,7 +259,7 @@ namespace MeroDokan
         {
             string appDataFolder = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "MeroDokan"
+                "MeroDokanCafe"
             );
             
             string primaryPath = Path.Combine(appDataFolder, LicenseFileName);
@@ -308,7 +308,7 @@ namespace MeroDokan
             // Primary save: AppData folder
             string appDataFolder = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "MeroDokan"
+                "MeroDokanCafe"
             );
             try
             {
@@ -338,7 +338,7 @@ namespace MeroDokan
             {
                 string appDataFolder = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "MeroDokan"
+                    "MeroDokanCafe"
                 );
                 string appDataPath = Path.Combine(appDataFolder, LicenseFileName);
                 if (File.Exists(appDataPath))

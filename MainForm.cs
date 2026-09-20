@@ -41,6 +41,7 @@ namespace MeroDokan
         private Button btnDatabase;
         private Button btnSettings;
         private Button btnLogout;
+        private Button currentActiveNavBtn = null;
 
         // Master Submenu Accordion Controls
         private Panel masterSubmenuPanel;
@@ -709,6 +710,8 @@ namespace MeroDokan
                 activeBtn.FlatAppearance.MouseOverBackColor = Theme.AccentHover;
             }
 
+            currentActiveNavBtn = activeBtn;
+
             // Swap out current Control inside Main Panel
             mainContentPanel.Controls.Clear();
             view.Dock = DockStyle.Fill;
@@ -818,12 +821,60 @@ namespace MeroDokan
 
         public void RefreshThemeColors()
         {
-            Theme.UpdateFontRecursively(this);
             this.BackColor = Theme.Secondary;
-            sidebarPanel.BackColor = Theme.SidebarBg;
-            headerPanel.BackColor = Theme.CardBg;
-            footerPanel.BackColor = Theme.CardBg;
-            mainContentPanel.BackColor = Theme.Secondary;
+            if (sidebarPanel != null) sidebarPanel.BackColor = Theme.SidebarBg;
+            if (sidebarMenuPanel != null) sidebarMenuPanel.BackColor = Theme.SidebarBg;
+            if (sidebarTopPanel != null) sidebarTopPanel.BackColor = Theme.SidebarBg;
+            if (sidebarBottomPanel != null) sidebarBottomPanel.BackColor = Theme.SidebarBg;
+            if (headerPanel != null) { headerPanel.BackColor = Theme.Primary; headerPanel.Invalidate(); }
+            if (footerPanel != null) { footerPanel.BackColor = Theme.CardBg; footerPanel.Invalidate(); }
+            if (mainContentPanel != null) mainContentPanel.BackColor = Theme.Secondary;
+
+            Button[] navButtons = { 
+                btnTables, btnPOS, btnKitchen, btnDashboard, btnMasterMenu, 
+                btnSubProducts, btnSubCategories, btnSubCustomers, 
+                btnSubStaff, btnSubSuppliers, btnSubHsnSac, btnSubUsers, btnSubProfile,
+                btnDailySettlement, btnReports, btnDatabase, btnSettings 
+            };
+
+            foreach (var b in navButtons)
+            {
+                if (b != null)
+                {
+                    if (b == currentActiveNavBtn)
+                    {
+                        b.BackColor = Theme.Accent;
+                        b.ForeColor = Theme.TextWhite;
+                        b.FlatAppearance.MouseOverBackColor = Theme.AccentHover;
+                    }
+                    else
+                    {
+                        b.BackColor = Color.Transparent;
+                        b.ForeColor = Theme.TextSidebar;
+                        b.FlatAppearance.MouseOverBackColor = Theme.SidebarHover;
+                    }
+                }
+            }
+
+            if (lblLogoTitle != null) lblLogoTitle.ForeColor = Theme.TextWhite;
+            if (lblLogoSub != null) lblLogoSub.ForeColor = Theme.Accent;
+            if (lblMenuIcon != null) lblMenuIcon.ForeColor = Theme.TextLight;
+            if (lblDiningCount != null) lblDiningCount.ForeColor = Theme.TextLight;
+            if (lblTakeawayCount != null) lblTakeawayCount.ForeColor = Theme.TextLight;
+            if (lblDeliveryCount != null) lblDeliveryCount.ForeColor = Theme.TextLight;
+            if (lblWaitingCount != null) lblWaitingCount.ForeColor = Theme.TextLight;
+
+            Theme.ApplyThemeRecursively(this);
+            Theme.UpdateFontRecursively(this);
+
+            if (mainContentPanel != null && mainContentPanel.Controls.Count > 0)
+            {
+                var activeCtrl = mainContentPanel.Controls[0];
+                if (activeCtrl is ProfileSettingsControl psc)
+                {
+                    psc.RefreshTheme();
+                }
+            }
 
             RefreshShopBrand();
         }

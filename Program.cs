@@ -31,7 +31,7 @@ namespace MeroDokan
             /* ================= END WINDOWS 7 SP1 COMPATIBILITY CHANGE ================= */
 
             // Apply default theme first so the Activation UI is styled correctly
-            Theme.ApplyThemePreset("Dark Slate");
+            Theme.ApplyThemePreset("Emerald Mint");
 
             // Ensure database is initialized before license check, loading themes or starting login
             bool dbInitialized = false;
@@ -122,8 +122,10 @@ namespace MeroDokan
                         {
                             if (rdr.Read())
                             {
-                                string theme = rdr["ThemePreset"].ToString();
+                                string theme = rdr["ThemePreset"]?.ToString();
                                 string fontSize = rdr["FontSizePreset"]?.ToString() ?? "Medium";
+
+                                if (string.IsNullOrWhiteSpace(theme)) theme = "Emerald Mint";
 
                                 Theme.ApplyThemePreset(theme);
                                 Theme.ApplyFontSizePreset(fontSize);

@@ -184,6 +184,9 @@ namespace MeroDokan
             public decimal SgstAmount = 0;
             public decimal RoundOff = 0;
             public decimal TotalInvoiceValue = 0;
+            public string PaymentMethod = "Cash";
+            public decimal CashAmount = 0;
+            public decimal OnlineAmount = 0;
             public string FooterGreeting = "Tashi Delek! Thukje Che!";
             public string Branding = "Powered by - MeroDokan";
             public string BillingPrinter = null;
@@ -347,7 +350,10 @@ namespace MeroDokan
                            ISNULL(s.OrderType, 'DINING') AS OrderType, ISNULL(s.TableNumber, '') AS TableNumber, 
                            ISNULL(s.KotNumbers, '') AS KotNumbers, ISNULL(s.PackingCharges, 0) AS PackingCharges,
                            ISNULL(s.CGSTAmount, 0) AS CGSTAmount, ISNULL(s.SGSTAmount, 0) AS SGSTAmount,
-                           ISNULL(s.RoundOff, 0) AS RoundOff, ISNULL(s.TaxableAmount, s.SubTotal) AS TaxableAmount
+                           ISNULL(s.RoundOff, 0) AS RoundOff, ISNULL(s.TaxableAmount, s.SubTotal) AS TaxableAmount,
+                           ISNULL(s.PaymentMethod, 'Cash') AS PaymentMethod,
+                           ISNULL(s.CashAmount, 0) AS CashAmount,
+                           ISNULL(s.OnlineAmount, 0) AS OnlineAmount
                     FROM Sales s
                     WHERE s.Id = @id", conn))
                 {
@@ -368,6 +374,9 @@ namespace MeroDokan
                             d.CgstAmount = Convert.ToDecimal(r["CGSTAmount"]);
                             d.SgstAmount = Convert.ToDecimal(r["SGSTAmount"]);
                             d.RoundOff = Convert.ToDecimal(r["RoundOff"]);
+                            d.PaymentMethod = r["PaymentMethod"]?.ToString() ?? "Cash";
+                            d.CashAmount = r["CashAmount"] != DBNull.Value ? Convert.ToDecimal(r["CashAmount"]) : 0m;
+                            d.OnlineAmount = r["OnlineAmount"] != DBNull.Value ? Convert.ToDecimal(r["OnlineAmount"]) : 0m;
 
                             // If tax split was not stored separately, split 50-50
                             if (d.CgstAmount == 0 && d.SgstAmount == 0 && d.GstAmount > 0)
@@ -497,7 +506,7 @@ namespace MeroDokan
             }
             h += d.Items.Count * 28;
             if (d.Discount > 0) h += 25;
-            h += 180; // Subtotals, Taxes, Round Off, Total
+            h += 205; // Subtotals, Taxes, Round Off, Total, Payment Method
             h += 90; // Footer greetings & feed
             return Math.Max(h, 520);
         }
@@ -688,6 +697,18 @@ namespace MeroDokan
                 g.DrawString("Total Invoice Value:", fBold, br, MarginLeft, y);
                 g.DrawString(d.TotalInvoiceValue.ToString("0"), fBold, br, new RectangleF(MarginLeft, y, UsableWidth, 16), sfRight);
                 y += 20;
+
+                if (!string.IsNullOrEmpty(d.PaymentMethod))
+                {
+                    string payStr = d.PaymentMethod;
+                    if (d.PaymentMethod == "Split")
+                    {
+                        payStr = $"Split (Cash ₹{d.CashAmount:0} + Online ₹{d.OnlineAmount:0})";
+                    }
+                    g.DrawString("Payment Mode:", fBody, br, MarginLeft, y);
+                    g.DrawString(payStr, fBold, br, new RectangleF(MarginLeft, y, UsableWidth, 16), sfRight);
+                    y += 18;
+                }
 
                 DrawDashedLine(g, y);
                 y += 10;

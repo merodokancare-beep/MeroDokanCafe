@@ -85,13 +85,18 @@ namespace MeroDokan
             }
             catch
             {
-                // Fallback to LocalApplicationData
-                string appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MeroDokan");
+                // Fallback to LocalApplicationData for MeroDokanCafe
+                string appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MeroDokanCafe");
                 if (!Directory.Exists(appDataDir))
                 {
                     Directory.CreateDirectory(appDataDir);
                 }
-                return Path.Combine(appDataDir, "dbconfig.txt");
+                string appDataFile = Path.Combine(appDataDir, "dbconfig.txt");
+                if (!File.Exists(appDataFile) && File.Exists(localFile))
+                {
+                    try { File.Copy(localFile, appDataFile, true); } catch { }
+                }
+                return appDataFile;
             }
         }
 
@@ -765,6 +770,9 @@ namespace MeroDokan
                                 Phone NVARCHAR(20) NULL,
                                 Email NVARCHAR(100) NULL,
                                 Address NVARCHAR(200) NULL,
+                                GSTIN NVARCHAR(50) NULL,
+                                StateName NVARCHAR(100) NOT NULL DEFAULT 'Delhi',
+                                StateCode NVARCHAR(10) NOT NULL DEFAULT '07',
                                 CreatedAt DATETIME DEFAULT GETDATE()
                             )
                         END", conn);
@@ -939,7 +947,24 @@ namespace MeroDokan
                                 AmountPaid DECIMAL(18,2) NOT NULL DEFAULT 0.00,
                                 DueAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
                                 PaymentMethod NVARCHAR(50) NOT NULL DEFAULT 'Cash',
-                                CreatedBy INT NULL FOREIGN KEY REFERENCES Users(Id)
+                                CreatedBy INT NULL FOREIGN KEY REFERENCES Users(Id),
+                                IsGSTBill BIT NOT NULL DEFAULT 1,
+                                TaxableAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+                                CGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+                                SGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+                                IGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+                                CustomerGSTIN NVARCHAR(50) NULL,
+                                PlaceOfSupply NVARCHAR(100) NULL,
+                                IsInterState BIT NOT NULL DEFAULT 0,
+                                CashAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+                                OnlineAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+                                OrderType NVARCHAR(50) NOT NULL DEFAULT 'DINING',
+                                TableNumber NVARCHAR(50) NULL,
+                                KotNumbers NVARCHAR(200) NULL,
+                                PackingCharges DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+                                StewardName NVARCHAR(100) NULL,
+                                RoundOff DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+                                AppointmentId INT NULL
                             )
                         END
                         ELSE
@@ -968,7 +993,13 @@ namespace MeroDokan
                                   Quantity INT NOT NULL,
                                   UnitPrice DECIMAL(18,2) NOT NULL,
                                   Total DECIMAL(18,2) NOT NULL,
-                                  PurchaseCostAtSale DECIMAL(18,2) NOT NULL DEFAULT 0.00
+                                  PurchaseCostAtSale DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+                                  HSNSAC NVARCHAR(50) NULL,
+                                  GSTRate DECIMAL(18,2) NOT NULL DEFAULT 5.00,
+                                  TaxableAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+                                  CGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+                                  SGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+                                  IGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00
                             )
                         END
                         ELSE
@@ -1073,7 +1104,8 @@ namespace MeroDokan
                                 Variance DECIMAL(18,2) NOT NULL DEFAULT 0.00,
                                 SettlementBy INT NULL FOREIGN KEY REFERENCES Users(Id),
                                 Remarks NVARCHAR(500) NULL,
-                                Refunds DECIMAL(18,2) NOT NULL DEFAULT 0.00
+                                Refunds DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+                                VoidAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00
                             )
                         END", conn);
 
@@ -1090,11 +1122,20 @@ namespace MeroDokan
                                 Address NVARCHAR(200) NOT NULL DEFAULT 'vajra world Mall Balwa khani, Gangtok Sikkim 737101',
                                 LogoPath NVARCHAR(500) NULL,
                                 ProfilePicPath NVARCHAR(500) NULL,
-                                ThemePreset NVARCHAR(50) NOT NULL DEFAULT 'Dark Slate',
+                                ThemePreset NVARCHAR(50) NOT NULL DEFAULT 'Emerald Mint',
                                 FontSizePreset NVARCHAR(50) NOT NULL DEFAULT 'Medium',
                                 BackupFolderPath NVARCHAR(500) NOT NULL DEFAULT 'D:\MeroDokanCafe\DailyDatabaseBackup',
                                 GoogleDriveAddress NVARCHAR(500) NOT NULL DEFAULT 'https://script.google.com/macros/s/AKfycbwm3WKMbeToLZt10WTPGrHwL4XsA8JgVO_H4MAaraDpssgTfUNs1x_ECblU4cKkRMAx/exec',
                                 GSTIN NVARCHAR(50) NULL,
+                                StateName NVARCHAR(100) NOT NULL DEFAULT 'Delhi',
+                                StateCode NVARCHAR(10) NOT NULL DEFAULT '07',
+                                IsTaxInclusive BIT NOT NULL DEFAULT 1,
+                                DefaultBillType NVARCHAR(50) NOT NULL DEFAULT 'GST',
+                                DefaultGSTRate DECIMAL(18,2) NOT NULL DEFAULT 5.00,
+                                ReceiptFooterText NVARCHAR(500) NOT NULL DEFAULT 'Tashi Delek! Thukje Che!',
+                                DefaultPackingCharge DECIMAL(18,2) NOT NULL DEFAULT 40.00,
+                                KitchenPrinterName NVARCHAR(200) NULL,
+                                BillingPrinterName NVARCHAR(200) NULL,
                                 UPIId NVARCHAR(100) NULL,
                                 UPIName NVARCHAR(100) NULL,
                                 AutoShowQROnUPI BIT NOT NULL DEFAULT 1,
@@ -1155,6 +1196,213 @@ namespace MeroDokan
                             )
                         END", conn);
 
+                    // CafeTables Table & Floor Areas
+                    ExecuteNonQuery(@"
+                        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'CafeTables')
+                        BEGIN
+                            CREATE TABLE CafeTables (
+                                Id INT PRIMARY KEY IDENTITY(1,1),
+                                TableNumber NVARCHAR(50) NOT NULL UNIQUE,
+                                TableName NVARCHAR(100) NOT NULL,
+                                Section NVARCHAR(50) NOT NULL DEFAULT 'Main Dining',
+                                Capacity INT NOT NULL DEFAULT 4,
+                                Status NVARCHAR(30) NOT NULL DEFAULT 'Available', -- Available, Running, Printed, Reserved
+                                CurrentBillAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+                                OrderStartTime DATETIME NULL,
+                                BilledTime DATETIME NULL,
+                                ActiveKotNumbers NVARCHAR(200) NULL,
+                                ActiveSaleId INT NULL,
+                                CurrentSteward NVARCHAR(100) NULL,
+                                IsActive BIT NOT NULL DEFAULT 1
+                            );
+
+                            -- Seed Tables 1 to 10 and Waiting 1 to 5
+                            INSERT INTO CafeTables (TableNumber, TableName, Section, Capacity, Status) VALUES
+                            ('1', 'Table 1', 'Main Dining', 2, 'Available'),
+                            ('2', 'Table 2', 'Main Dining', 4, 'Available'),
+                            ('3', 'Table 3', 'Main Dining', 4, 'Available'),
+                            ('4', 'Table 4', 'Main Dining', 4, 'Available'),
+                            ('5', 'Table 5', 'Main Dining', 6, 'Available'),
+                            ('6', 'Table 6', 'Main Dining', 2, 'Available'),
+                            ('7', 'Table 7', 'Main Dining', 4, 'Available'),
+                            ('8', 'Table 8', 'Main Dining', 4, 'Available'),
+                            ('9', 'Table 9', 'Main Dining', 6, 'Available'),
+                            ('10', 'Table 10', 'Main Dining', 8, 'Available'),
+                            ('Waiting 1', 'Waiting Token 1', 'Takeaway & Waiting', 1, 'Available'),
+                            ('Waiting 2', 'Waiting Token 2', 'Takeaway & Waiting', 1, 'Available'),
+                            ('Waiting 3', 'Waiting Token 3', 'Takeaway & Waiting', 1, 'Available'),
+                            ('Waiting 4', 'Waiting Token 4', 'Takeaway & Waiting', 1, 'Available'),
+                            ('Waiting 5', 'Waiting Token 5', 'Takeaway & Waiting', 1, 'Available');
+                        END", conn);
+
+                    // Kitchen Order Tickets (KOT Master)
+                    ExecuteNonQuery(@"
+                        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'KOTMaster')
+                        BEGIN
+                            CREATE TABLE KOTMaster (
+                                Id INT PRIMARY KEY IDENTITY(1,1),
+                                KOTNumber INT NOT NULL,
+                                TableNumber NVARCHAR(50) NOT NULL,
+                                OrderType NVARCHAR(50) NOT NULL DEFAULT 'DINING', -- DINING, Take Away, Delivery
+                                Steward NVARCHAR(100) NULL,
+                                Status NVARCHAR(30) NOT NULL DEFAULT 'Active', -- Active, Served, Billed, Voided
+                                CreatedAt DATETIME NOT NULL DEFAULT GETDATE(),
+                                KotComment NVARCHAR(500) NULL,
+                                IsVoided BIT NOT NULL DEFAULT 0,
+                                VoidReason NVARCHAR(500) NULL,
+                                VoidedAt DATETIME NULL,
+                                SaleId INT NULL
+                            );
+                        END", conn);
+
+                    // KOT Details (Itemized Kitchen Orders)
+                    ExecuteNonQuery(@"
+                        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'KOTDetails')
+                        BEGIN
+                            CREATE TABLE KOTDetails (
+                                Id INT PRIMARY KEY IDENTITY(1,1),
+                                KOTId INT NOT NULL FOREIGN KEY REFERENCES KOTMaster(Id) ON DELETE CASCADE,
+                                ProductId INT NULL,
+                                ItemName NVARCHAR(150) NOT NULL,
+                                Quantity INT NOT NULL DEFAULT 1,
+                                Rate DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+                                Amount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+                                Instructions NVARCHAR(200) NULL,
+                                IsVoided BIT NOT NULL DEFAULT 0,
+                                VoidReason NVARCHAR(300) NULL,
+                                VoidedAt DATETIME NULL,
+                                CreatedAt DATETIME NOT NULL DEFAULT GETDATE()
+                            );
+                        END", conn);
+
+                    // Run schema column migrations FIRST so all tables have full schemas before seeding or queries
+                    ExecuteNonQuery(@"
+                        -- AppProfile migrations
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'GSTIN')
+                            ALTER TABLE AppProfile ADD GSTIN NVARCHAR(50) NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'StateName')
+                            ALTER TABLE AppProfile ADD StateName NVARCHAR(100) NOT NULL DEFAULT 'Delhi';
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'StateCode')
+                            ALTER TABLE AppProfile ADD StateCode NVARCHAR(10) NOT NULL DEFAULT '07';
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'IsTaxInclusive')
+                            ALTER TABLE AppProfile ADD IsTaxInclusive BIT NOT NULL DEFAULT 1;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'DefaultBillType')
+                            ALTER TABLE AppProfile ADD DefaultBillType NVARCHAR(50) NOT NULL DEFAULT 'GST';
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'DefaultGSTRate')
+                            ALTER TABLE AppProfile ADD DefaultGSTRate DECIMAL(18,2) NOT NULL DEFAULT 5.00;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'UPIId')
+                            ALTER TABLE AppProfile ADD UPIId NVARCHAR(100) NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'UPIName')
+                            ALTER TABLE AppProfile ADD UPIName NVARCHAR(100) NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'AutoShowQROnUPI')
+                            ALTER TABLE AppProfile ADD AutoShowQROnUPI BIT NOT NULL DEFAULT 1;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'PrintQROnReceipt')
+                            ALTER TABLE AppProfile ADD PrintQROnReceipt BIT NOT NULL DEFAULT 1;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'ReceiptFooterText')
+                            ALTER TABLE AppProfile ADD ReceiptFooterText NVARCHAR(500) NOT NULL DEFAULT 'Tashi Delek! Thukje Che!';
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'DefaultPackingCharge')
+                            ALTER TABLE AppProfile ADD DefaultPackingCharge DECIMAL(18,2) NOT NULL DEFAULT 40.00;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'KitchenPrinterName')
+                            ALTER TABLE AppProfile ADD KitchenPrinterName NVARCHAR(200) NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'BillingPrinterName')
+                            ALTER TABLE AppProfile ADD BillingPrinterName NVARCHAR(200) NULL;
+
+                        -- Services migrations
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Services') AND name = 'SACCode')
+                            ALTER TABLE Services ADD SACCode NVARCHAR(50) NOT NULL DEFAULT '996331';
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Services') AND name = 'GSTRate')
+                            ALTER TABLE Services ADD GSTRate DECIMAL(18,2) NOT NULL DEFAULT 5.00;
+
+                        -- Products migrations
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Products') AND name = 'HSNCode')
+                            ALTER TABLE Products ADD HSNCode NVARCHAR(50) NOT NULL DEFAULT '2106';
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Products') AND name = 'GSTRate')
+                            ALTER TABLE Products ADD GSTRate DECIMAL(18,2) NOT NULL DEFAULT 5.00;
+
+                        -- Customers migrations
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Customers') AND name = 'GSTIN')
+                            ALTER TABLE Customers ADD GSTIN NVARCHAR(50) NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Customers') AND name = 'StateName')
+                            ALTER TABLE Customers ADD StateName NVARCHAR(100) NOT NULL DEFAULT 'Delhi';
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Customers') AND name = 'StateCode')
+                            ALTER TABLE Customers ADD StateCode NVARCHAR(10) NOT NULL DEFAULT '07';
+
+                        -- Sales migrations
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'IsGSTBill')
+                            ALTER TABLE Sales ADD IsGSTBill BIT NOT NULL DEFAULT 1;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'TaxableAmount')
+                            ALTER TABLE Sales ADD TaxableAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'CGSTAmount')
+                            ALTER TABLE Sales ADD CGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'SGSTAmount')
+                            ALTER TABLE Sales ADD SGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'IGSTAmount')
+                            ALTER TABLE Sales ADD IGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'CustomerGSTIN')
+                            ALTER TABLE Sales ADD CustomerGSTIN NVARCHAR(50) NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'PlaceOfSupply')
+                            ALTER TABLE Sales ADD PlaceOfSupply NVARCHAR(100) NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'IsInterState')
+                            ALTER TABLE Sales ADD IsInterState BIT NOT NULL DEFAULT 0;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'CashAmount')
+                            ALTER TABLE Sales ADD CashAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'OnlineAmount')
+                            ALTER TABLE Sales ADD OnlineAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'OrderType')
+                            ALTER TABLE Sales ADD OrderType NVARCHAR(50) NOT NULL DEFAULT 'DINING';
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'TableNumber')
+                            ALTER TABLE Sales ADD TableNumber NVARCHAR(50) NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'KotNumbers')
+                            ALTER TABLE Sales ADD KotNumbers NVARCHAR(200) NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'PackingCharges')
+                            ALTER TABLE Sales ADD PackingCharges DECIMAL(18,2) NOT NULL DEFAULT 0.00;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'StewardName')
+                            ALTER TABLE Sales ADD StewardName NVARCHAR(100) NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'RoundOff')
+                            ALTER TABLE Sales ADD RoundOff DECIMAL(18,2) NOT NULL DEFAULT 0.00;
+
+                        -- SaleDetails migrations
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SaleDetails') AND name = 'HSNSAC')
+                            ALTER TABLE SaleDetails ADD HSNSAC NVARCHAR(50) NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SaleDetails') AND name = 'GSTRate')
+                            ALTER TABLE SaleDetails ADD GSTRate DECIMAL(18,2) NOT NULL DEFAULT 5.00;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SaleDetails') AND name = 'TaxableAmount')
+                            ALTER TABLE SaleDetails ADD TaxableAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SaleDetails') AND name = 'CGSTAmount')
+                            ALTER TABLE SaleDetails ADD CGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SaleDetails') AND name = 'SGSTAmount')
+                            ALTER TABLE SaleDetails ADD SGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SaleDetails') AND name = 'IGSTAmount')
+                            ALTER TABLE SaleDetails ADD IGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
+
+                        -- Appointments migrations
+                        ALTER TABLE Appointments ALTER COLUMN AppointmentTime NVARCHAR(100) NOT NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Appointments') AND name = 'ServiceStaffIds')
+                            ALTER TABLE Appointments ADD ServiceStaffIds NVARCHAR(1000) NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Appointments') AND name = 'SaleId')
+                            ALTER TABLE Appointments ADD SaleId INT NULL FOREIGN KEY REFERENCES Sales(Id) ON DELETE SET NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'AppointmentId')
+                            ALTER TABLE Sales ADD AppointmentId INT NULL FOREIGN KEY REFERENCES Appointments(Id) ON DELETE SET NULL;
+
+                        -- DailySettlements migrations
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('DailySettlements') AND name = 'CardSales')
+                            ALTER TABLE DailySettlements ADD CardSales DECIMAL(18,2) NOT NULL DEFAULT 0.00;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('DailySettlements') AND name = 'QRSales')
+                            ALTER TABLE DailySettlements ADD QRSales DECIMAL(18,2) NOT NULL DEFAULT 0.00;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('DailySettlements') AND name = 'VoidAmount')
+                            ALTER TABLE DailySettlements ADD VoidAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
+
+                        -- Void / Cancellation Audit Columns for KOTMaster & KOTDetails
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('KOTMaster') AND name = 'VoidReason')
+                            ALTER TABLE KOTMaster ADD VoidReason NVARCHAR(500) NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('KOTMaster') AND name = 'VoidedAt')
+                            ALTER TABLE KOTMaster ADD VoidedAt DATETIME NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('KOTDetails') AND name = 'VoidReason')
+                            ALTER TABLE KOTDetails ADD VoidReason NVARCHAR(500) NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('KOTDetails') AND name = 'VoidedAt')
+                            ALTER TABLE KOTDetails ADD VoidedAt DATETIME NULL;
+                    ", conn);
+
                     // 3. Seed Default Admin User if none exists
                     int userCount = 0;
                     using (SqlCommand cmd = new SqlCommand("SELECT COUNT(*) FROM Users", conn))
@@ -1203,16 +1451,22 @@ namespace MeroDokan
                     {
                         using (SqlCommand cmd = new SqlCommand(@"
                             INSERT INTO Categories (Name, Type, HsnSacCode, GSTRate) VALUES 
-                            ('Korean Specials', 'Product', '2106', 5.00),
-                            ('Laphing & Soups', 'Product', '2104', 5.00),
-                            ('Pasta NonVeg', 'Product', '1902', 5.00),
-                            ('Pasta Veg', 'Product', '1902', 5.00),
-                            ('Pizza NonVeg', 'Product', '1905', 5.00),
-                            ('Pizza Veg', 'Product', '1905', 5.00),
-                            ('Breakfast & Bread', 'Product', '1905', 5.00),
-                            ('Drinks & Beverages', 'Product', '2202', 5.00),
-                            ('Coffee & Hot Brews', 'Product', '0901', 5.00),
-                            ('Cakes & Desserts', 'Product', '1905', 5.00),
+                            ('Coffee', 'Product', '0901', 5.00),
+                            ('Shakes', 'Product', '2202', 5.00),
+                            ('Black Hot', 'Product', '0902', 5.00),
+                            ('Milk Hot', 'Product', '0902', 5.00),
+                            ('Refreshers', 'Product', '2202', 5.00),
+                            ('Pizza', 'Product', '1905', 5.00),
+                            ('Sandwich', 'Product', '1905', 5.00),
+                            ('Burger', 'Product', '1905', 5.00),
+                            ('Korean', 'Product', '2106', 5.00),
+                            ('Breakfast', 'Product', '1905', 5.00),
+                            ('Small Bites', 'Product', '2106', 5.00),
+                            ('Soups', 'Product', '2104', 5.00),
+                            ('Wraps', 'Product', '1905', 5.00),
+                            ('Pasta & Noodles', 'Product', '1902', 5.00),
+                            ('Laphing', 'Product', '2104', 5.00),
+                            ('Salads', 'Product', '2106', 5.00),
                             ('AddOn', 'Product', '2106', 5.00)", conn))
                         {
                             cmd.ExecuteNonQuery();
@@ -1252,26 +1506,132 @@ namespace MeroDokan
                     {
                         using (SqlCommand cmd = new SqlCommand(@"
                             INSERT INTO Products (Code, Name, Description, Category, PurchasePrice, SalesPrice, Stock, MinStockLevel, HSNCode, GSTRate) VALUES 
-                            ('CF-101', 'Kimbap table Veg', 'Authentic seasoned rice and vegetable rolled in roasted seaweed', 'Korean Specials', 180.00, 350.00, 100, 10, '2106', 5.00),
-                            ('CF-102', 'Veg Laphing Soupy', 'Cold Tibetan street mung bean noodles in savory garlic chili soup', 'Laphing & Soups', 50.00, 120.00, 100, 10, '2104', 5.00),
-                            ('CF-103', 'PASTA AL FUNGI CHICKEN', 'Creamy mushroom garlic sauce with tender grilled chicken chunks', 'Pasta NonVeg', 200.00, 390.00, 100, 10, '1902', 5.00),
-                            ('CF-104', 'PASTA AL FUNGI VEG', 'Rich creamy wild mushroom herbs sauce with penne', 'Pasta Veg', 160.00, 320.00, 100, 10, '1902', 5.00),
-                            ('CF-105', 'PASTA ARRIBIATA CHICKEN', 'Spicy rich tomato basil sauce with seasoned chicken pieces', 'Pasta NonVeg', 190.00, 380.00, 100, 10, '1902', 5.00),
-                            ('CF-106', 'PASTA ARRIBIATA VEG', 'Classic spicy garlic and tomato herb pasta', 'Pasta Veg', 150.00, 310.00, 100, 10, '1902', 5.00),
-                            ('CF-107', 'Grilled chicken spaghetti', 'Olive oil garlic tossed spaghetti with herb grilled chicken breast', 'Pasta NonVeg', 200.00, 390.00, 100, 10, '1902', 5.00),
-                            ('CF-108', 'Shanghai Pasta Chicken', 'Wok tossed fusion pasta with Oriental sauces and chicken', 'Pasta NonVeg', 200.00, 390.00, 100, 10, '1902', 5.00),
-                            ('CF-109', 'Shanghai Amdo Pasta Chicken', 'Traditional Amdo style seasoned thick pasta with shredded chicken', 'Pasta NonVeg', 210.00, 400.00, 100, 10, '1902', 5.00),
-                            ('CF-110', 'Shanghai pasta veg', 'Wok tossed pasta with bell peppers, mushrooms and chili soya', 'Pasta Veg', 160.00, 320.00, 100, 10, '1902', 5.00),
-                            ('CF-111', 'Shanghai Amdo Pasta Veg', 'Amdo handmade rustic pasta with stir fried seasonal vegetables', 'Pasta Veg', 170.00, 330.00, 100, 10, '1902', 5.00),
-                            ('CF-112', 'Bang bang noodles non veg', 'Spicy Sichuan chili oil sesame noodles with shredded chicken', 'Korean Specials', 180.00, 350.00, 100, 10, '2106', 5.00),
-                            ('CF-113', 'Bang bang noodles veg', 'Handmade flat noodles in zesty chili sesame scallion dressing', 'Korean Specials', 140.00, 280.00, 100, 10, '2106', 5.00),
-                            ('CF-114', 'Tibetan Bread', 'Fresh fluffy pan-fried traditional Himalayan bread', 'Breakfast & Bread', 30.00, 80.00, 100, 10, '1905', 5.00),
-                            ('CF-115', 'Peach Ice Tea', 'Refreshing artisanal black tea infused with sweet peach essence and lemon', 'Drinks & Beverages', 40.00, 140.00, 100, 10, '2202', 5.00),
-                            ('CF-116', 'HIMALAYAN BREAKFAST', 'Tibetan bread, eggs to order, butter, honey, and local sausage', 'Breakfast & Bread', 120.00, 280.00, 100, 10, '1905', 5.00),
-                            ('CF-117', 'VEG PIZZA', 'Woodfired thin crust pizza loaded with mozzarella, peppers and olives', 'Pizza Veg', 160.00, 350.00, 100, 10, '1905', 5.00),
-                            ('CF-118', 'ADD ON EXTRA CHICKEN/EGG', 'Extra portion of succulent grilled chicken or sunny side egg', 'AddOn', 25.00, 60.00, 100, 10, '2106', 5.00),
-                            ('CF-119', 'Espresso / Americano', 'Freshly brewed single origin Arabica coffee shot', 'Coffee & Hot Brews', 35.00, 110.00, 100, 10, '0901', 5.00),
-                            ('CF-120', 'Cafe Latte / Cappuccino', 'Velvety steamed milk with rich espresso shot and silky crema', 'Coffee & Hot Brews', 45.00, 150.00, 100, 10, '0901', 5.00)", conn))
+                            ('DRK-001', 'Detox Tea', 'Detox Tea', 'Black Hot', 0.00, 120.00, 100, 5, '0902', 5.00),
+                            ('DRK-002', 'Ginger Honey Lemon Tea', 'Ginger Honey Lemon Tea', 'Black Hot', 0.00, 130.00, 100, 5, '0902', 5.00),
+                            ('DRK-003', 'Tibetan Tea', 'Tibetan Tea', 'Milk Hot', 0.00, 120.00, 100, 5, '0902', 5.00),
+                            ('DRK-004', 'Hot Chocolate', 'Hot Chocolate', 'Milk Hot', 0.00, 200.00, 100, 5, '1806', 5.00),
+                            ('REF-001', 'Lemon Iced Tea', 'Lemon Iced Tea', 'Refreshers', 0.00, 220.00, 100, 5, '2202', 5.00),
+                            ('REF-002', 'Peach Iced Tea', 'Peach Iced Tea', 'Refreshers', 0.00, 220.00, 100, 5, '2202', 5.00),
+                            ('REF-003', 'Virgin Mojito', 'Virgin Mojito', 'Refreshers', 0.00, 220.00, 100, 5, '2202', 5.00),
+                            ('REF-004', 'Mint Mojito', 'Mint Mojito', 'Refreshers', 0.00, 220.00, 100, 5, '2202', 5.00),
+                            ('REF-005', 'Watermelon Mojito', 'Watermelon Mojito', 'Refreshers', 0.00, 220.00, 100, 5, '2202', 5.00),
+                            ('REF-006', 'Lemon Soda', 'Lemon Soda', 'Refreshers', 0.00, 120.00, 100, 5, '2202', 5.00),
+                            ('PIZ-001', 'Veg Pizza', 'Veg Pizza', 'Pizza', 0.00, 450.00, 100, 5, '1905', 5.00),
+                            ('PIZ-002', 'Margarita Pizza', 'Margarita Pizza', 'Pizza', 0.00, 460.00, 100, 5, '1905', 5.00),
+                            ('PIZ-003', 'Pizza Fungi', 'Pizza Fungi', 'Pizza', 0.00, 490.00, 100, 5, '1905', 5.00),
+                            ('PIZ-004', 'Grilled Chicken Pizza', 'Grilled Chicken Pizza', 'Pizza', 0.00, 520.00, 100, 5, '1905', 5.00),
+                            ('PIZ-005', 'Tuna Pizza', 'Tuna Pizza', 'Pizza', 0.00, 500.00, 100, 5, '1905', 5.00),
+                            ('PIZ-006', 'Peri Peri Grilled Chicken Pizza', 'Peri Peri Grilled Chicken Pizza', 'Pizza', 0.00, 530.00, 100, 5, '1905', 5.00),
+                            ('PIZ-007', 'Peri Peri Chicken Sausage Pizza', 'Peri Peri Chicken Sausage Pizza', 'Pizza', 0.00, 550.00, 100, 5, '1905', 5.00),
+                            ('PIZ-008', 'Bacon Tomato Pizza', 'Bacon Tomato Pizza', 'Pizza', 0.00, 580.00, 100, 5, '1905', 5.00),
+                            ('PIZ-009', 'Pepperoni Pizza', 'Pepperoni Pizza', 'Pizza', 0.00, 580.00, 100, 5, '1905', 5.00),
+                            ('PIZ-010', 'Gorkha Spicy Pizza (Veg)', 'Gorkha Spicy Pizza (Veg)', 'Pizza', 0.00, 490.00, 100, 5, '1905', 5.00),
+                            ('PIZ-011', 'Gorkha Spicy Pizza (Chicken)', 'Gorkha Spicy Pizza (Chicken)', 'Pizza', 0.00, 550.00, 100, 5, '1905', 5.00),
+                            ('SND-001', 'Classic Grilled Cheese (Veg)', 'Classic Grilled Cheese (Veg)', 'Sandwich', 0.00, 250.00, 100, 5, '1905', 5.00),
+                            ('SND-002', 'Classic Grilled Cheese (Non Veg)', 'Classic Grilled Cheese (Non Veg)', 'Sandwich', 0.00, 280.00, 100, 5, '1905', 5.00),
+                            ('SND-003', 'Club Sandwich (Veg)', 'Club Sandwich (Veg)', 'Sandwich', 0.00, 330.00, 100, 5, '1905', 5.00),
+                            ('SND-004', 'Club Sandwich (Non Veg)', 'Club Sandwich (Non Veg)', 'Sandwich', 0.00, 380.00, 100, 5, '1905', 5.00),
+                            ('SND-005', 'Bacon Sandwich', 'Bacon Sandwich', 'Sandwich', 0.00, 380.00, 100, 5, '1905', 5.00),
+                            ('SND-006', 'Tuna Sandwich', 'Tuna Sandwich', 'Sandwich', 0.00, 370.00, 100, 5, '1905', 5.00),
+                            ('SND-007', 'Tibetan Bread Sandwich (Veg)', 'Tibetan Bread Sandwich (Veg)', 'Sandwich', 0.00, 290.00, 100, 5, '1905', 5.00),
+                            ('SND-008', 'Tibetan Bread Sandwich (Non Veg)', 'Tibetan Bread Sandwich (Non Veg)', 'Sandwich', 0.00, 320.00, 100, 5, '1905', 5.00),
+                            ('BGR-001', 'TLC Special Burger (Non Veg)', 'TLC Special Burger (Non Veg)', 'Burger', 0.00, 370.00, 100, 5, '1905', 5.00),
+                            ('KOR-001', 'Kimbap (Veg)', 'Kimbap (Veg)', 'Korean', 0.00, 350.00, 100, 5, '2106', 5.00),
+                            ('KOR-002', 'Kimbap (Chicken)', 'Kimbap (Chicken)', 'Korean', 0.00, 380.00, 100, 5, '2106', 5.00),
+                            ('KOR-003', 'Tuna Kimbap', 'Tuna Kimbap', 'Korean', 0.00, 400.00, 100, 5, '2106', 5.00),
+                            ('KOR-004', 'Bacon Kimbap', 'Bacon Kimbap', 'Korean', 0.00, 450.00, 100, 5, '2106', 5.00),
+                            ('KOR-005', 'Nude Kimbap (Veg)', 'Nude Kimbap (Veg)', 'Korean', 0.00, 300.00, 100, 5, '2106', 5.00),
+                            ('KOR-006', 'Nude Kimbap (Chicken)', 'Nude Kimbap (Chicken)', 'Korean', 0.00, 350.00, 100, 5, '2106', 5.00),
+                            ('KOR-007', 'Nude Kimbap (Bacon)', 'Nude Kimbap (Bacon)', 'Korean', 0.00, 400.00, 100, 5, '2106', 5.00),
+                            ('KOR-008', 'Ramen (Veg)', 'Ramen (Veg)', 'Korean', 0.00, 300.00, 100, 5, '2106', 5.00),
+                            ('KOR-009', 'Ramen (Chicken)', 'Ramen (Chicken)', 'Korean', 0.00, 350.00, 100, 5, '2106', 5.00),
+                            ('KOR-010', 'Bacon Ramen', 'Bacon Ramen', 'Korean', 0.00, 400.00, 100, 5, '2106', 5.00),
+                            ('KOR-011', 'Tteokbokki (Veg)', 'Tteokbokki (Veg)', 'Korean', 0.00, 350.00, 100, 5, '2106', 5.00),
+                            ('KOR-012', 'Tteokbokki (Chicken)', 'Tteokbokki (Chicken)', 'Korean', 0.00, 420.00, 100, 5, '2106', 5.00),
+                            ('KOR-013', 'Tteokbokki (Pork)', 'Tteokbokki (Pork)', 'Korean', 0.00, 450.00, 100, 5, '2106', 5.00),
+                            ('KOR-014', 'Dakgangjeong (Chicken Wings)', 'Dakgangjeong (Chicken Wings)', 'Korean', 0.00, 400.00, 100, 5, '2106', 5.00),
+                            ('KOR-015', 'Korean Corn Dog (Cheese)', 'Korean Corn Dog (Cheese)', 'Korean', 0.00, 300.00, 100, 5, '2106', 5.00),
+                            ('KOR-016', 'Korean Corn Dog (Chicken Sausage)', 'Korean Corn Dog (Chicken Sausage)', 'Korean', 0.00, 350.00, 100, 5, '2106', 5.00),
+                            ('KOR-017', 'Jjamppong (Veg)', 'Jjamppong (Veg)', 'Korean', 0.00, 320.00, 100, 5, '2106', 5.00),
+                            ('KOR-018', 'Jjamppong (Non Veg)', 'Jjamppong (Non Veg)', 'Korean', 0.00, 360.00, 100, 5, '2106', 5.00),
+                            ('KOR-019', 'Jangi Guksu (Veg)', 'Jangi Guksu (Veg)', 'Korean', 0.00, 320.00, 100, 5, '2106', 5.00),
+                            ('KOR-020', 'Jangi Guksu (Non Veg)', 'Jangi Guksu (Non Veg)', 'Korean', 0.00, 360.00, 100, 5, '2106', 5.00),
+                            ('KOR-021', 'Japchae (Veg)', 'Japchae (Veg)', 'Korean', 0.00, 350.00, 100, 5, '2106', 5.00),
+                            ('KOR-022', 'Japchae (Chicken)', 'Japchae (Chicken)', 'Korean', 0.00, 400.00, 100, 5, '2106', 5.00),
+                            ('KOR-023', 'Japchae (Pork)', 'Japchae (Pork)', 'Korean', 0.00, 450.00, 100, 5, '2106', 5.00),
+                            ('KOR-024', 'Korean Chicken Wings', 'Korean Chicken Wings', 'Korean', 0.00, 400.00, 100, 5, '2106', 5.00),
+                            ('KOR-025', 'Korean Hot and Crispy Chicken', 'Korean Hot and Crispy Chicken', 'Korean', 0.00, 400.00, 100, 5, '2106', 5.00),
+                            ('COF-001', 'Espresso (Hot)', 'Espresso (Hot)', 'Coffee', 0.00, 130.00, 100, 5, '0901', 5.00),
+                            ('COF-002', 'Americano (Hot)', 'Americano (Hot)', 'Coffee', 0.00, 130.00, 100, 5, '0901', 5.00),
+                            ('COF-003', 'Yak Butter Americano', 'Yak Butter Americano', 'Coffee', 0.00, 160.00, 100, 5, '0901', 5.00),
+                            ('COF-004', 'Iced Espresso', 'Iced Espresso', 'Coffee', 0.00, 150.00, 100, 5, '0901', 5.00),
+                            ('COF-005', 'Iced Americano', 'Iced Americano', 'Coffee', 0.00, 150.00, 100, 5, '0901', 5.00),
+                            ('COF-006', 'Affogato', 'Affogato', 'Coffee', 0.00, 250.00, 100, 5, '0901', 5.00),
+                            ('COF-007', 'Cappuccino', 'Cappuccino', 'Coffee', 0.00, 160.00, 100, 5, '0901', 5.00),
+                            ('COF-008', 'Yak Butter Cappuccino', 'Yak Butter Cappuccino', 'Coffee', 0.00, 200.00, 100, 5, '0901', 5.00),
+                            ('COF-009', 'Flat White', 'Flat White', 'Coffee', 0.00, 160.00, 100, 5, '0901', 5.00),
+                            ('COF-010', 'Cafe Latte', 'Cafe Latte', 'Coffee', 0.00, 160.00, 100, 5, '0901', 5.00),
+                            ('COF-011', 'Mocha', 'Mocha', 'Coffee', 0.00, 180.00, 100, 5, '0901', 5.00),
+                            ('COF-012', 'Macchiato', 'Macchiato', 'Coffee', 0.00, 130.00, 100, 5, '0901', 5.00),
+                            ('COF-013', 'Iced Latte', 'Iced Latte', 'Coffee', 0.00, 160.00, 100, 5, '0901', 5.00),
+                            ('COF-014', 'Iced Cappuccino', 'Iced Cappuccino', 'Coffee', 0.00, 160.00, 100, 5, '0901', 5.00),
+                            ('COF-015', 'Iced Mocha', 'Iced Mocha', 'Coffee', 0.00, 180.00, 100, 5, '0901', 5.00),
+                            ('COF-016', 'Cold Coffee', 'Cold Coffee', 'Coffee', 0.00, 180.00, 100, 5, '0901', 5.00),
+                            ('COF-017', 'Vietnamese Iced Coffee', 'Vietnamese Iced Coffee', 'Coffee', 0.00, 230.00, 100, 5, '0901', 5.00),
+                            ('COF-018', 'Orange Americano', 'Orange Americano', 'Coffee', 0.00, 240.00, 100, 5, '0901', 5.00),
+                            ('COF-019', 'Passion Fruit Americano', 'Passion Fruit Americano', 'Coffee', 0.00, 240.00, 100, 5, '0901', 5.00),
+                            ('COF-020', 'Coconut Espresso', 'Coconut Espresso', 'Coffee', 0.00, 240.00, 100, 5, '0901', 5.00),
+                            ('COF-021', 'French Press', 'French Press', 'Coffee', 0.00, 160.00, 100, 5, '0901', 5.00),
+                            ('COF-022', 'Himaliano Drip', 'Himaliano Drip', 'Coffee', 0.00, 160.00, 100, 5, '0901', 5.00),
+                            ('COF-023', 'Chemex', 'Chemex', 'Coffee', 0.00, 180.00, 100, 5, '0901', 5.00),
+                            ('COF-024', 'Cold Brew Black', 'Cold Brew Black', 'Coffee', 0.00, 230.00, 100, 5, '0901', 5.00),
+                            ('SHK-001', 'Vanilla Shake', 'Vanilla Shake', 'Shakes', 0.00, 240.00, 100, 5, '2202', 5.00),
+                            ('SHK-002', 'Banana Shake', 'Banana Shake', 'Shakes', 0.00, 240.00, 100, 5, '2202', 5.00),
+                            ('SHK-003', 'Oreo Shake', 'Oreo Shake', 'Shakes', 0.00, 240.00, 100, 5, '2202', 5.00),
+                            ('SHK-004', 'Chocolate Shake', 'Chocolate Shake', 'Shakes', 0.00, 240.00, 100, 5, '2202', 5.00),
+                            ('ADD-001', 'Vanilla Syrup Topping', 'Vanilla Syrup Topping', 'AddOn', 0.00, 40.00, 100, 5, '2106', 5.00),
+                            ('ADD-002', 'Hazelnut Syrup Topping', 'Hazelnut Syrup Topping', 'AddOn', 0.00, 40.00, 100, 5, '2106', 5.00),
+                            ('ADD-003', 'Caramel Syrup Topping', 'Caramel Syrup Topping', 'AddOn', 0.00, 40.00, 100, 5, '2106', 5.00),
+                            ('BRK-001', 'Himalayan Breakfast', 'Himalayan Breakfast', 'Breakfast', 0.00, 400.00, 100, 5, '1905', 5.00),
+                            ('BRK-002', 'English Breakfast', 'English Breakfast', 'Breakfast', 0.00, 450.00, 100, 5, '1905', 5.00),
+                            ('ADD-004', 'Extra Chicken Sausage / Bacon', 'Extra Chicken Sausage / Bacon', 'AddOn', 0.00, 60.00, 100, 5, '2106', 5.00),
+                            ('ADD-005', 'Extra Pork Sausage / Bacon', 'Extra Pork Sausage / Bacon', 'AddOn', 0.00, 90.00, 100, 5, '2106', 5.00),
+                            ('SML-001', 'Tibetan Calzone (Veg)', 'Tibetan Calzone (Veg)', 'Small Bites', 0.00, 270.00, 100, 5, '1905', 5.00),
+                            ('SML-002', 'Tibetan Calzone (Non Veg)', 'Tibetan Calzone (Non Veg)', 'Small Bites', 0.00, 290.00, 100, 5, '1905', 5.00),
+                            ('SML-003', 'Himalayan Hot Dalle Fries (Veg)', 'Himalayan Hot Dalle Fries (Veg)', 'Small Bites', 0.00, 280.00, 100, 5, '2106', 5.00),
+                            ('SOP-001', 'Barley Soup (Veg)', 'Barley Soup (Veg)', 'Soups', 0.00, 180.00, 100, 5, '2104', 5.00),
+                            ('SOP-002', 'Barley Soup (Non Veg)', 'Barley Soup (Non Veg)', 'Soups', 0.00, 210.00, 100, 5, '2104', 5.00),
+                            ('SOP-003', 'Tsampthuk Soup (Veg)', 'Tsampthuk Soup (Veg)', 'Soups', 0.00, 170.00, 100, 5, '2104', 5.00),
+                            ('SOP-004', 'Tsampthuk Soup (Non Veg)', 'Tsampthuk Soup (Non Veg)', 'Soups', 0.00, 210.00, 100, 5, '2104', 5.00),
+                            ('PAS-001', 'Shanghai Pasta (Veg)', 'Shanghai Pasta (Veg)', 'Pasta & Noodles', 0.00, 350.00, 100, 5, '1902', 5.00),
+                            ('PAS-002', 'Shanghai Pasta (Non Veg)', 'Shanghai Pasta (Non Veg)', 'Pasta & Noodles', 0.00, 390.00, 100, 5, '1902', 5.00),
+                            ('PAS-003', 'Bang-bang Noodles (Veg)', 'Bang-bang Noodles (Veg)', 'Pasta & Noodles', 0.00, 350.00, 100, 5, '1902', 5.00),
+                            ('PAS-004', 'Bang-bang Noodles (Non Veg)', 'Bang-bang Noodles (Non Veg)', 'Pasta & Noodles', 0.00, 390.00, 100, 5, '1902', 5.00),
+                            ('PAS-005', 'Keema Noodles (Non Veg)', 'Keema Noodles (Non Veg)', 'Pasta & Noodles', 0.00, 390.00, 100, 5, '1902', 5.00),
+                            ('LPH-001', 'Yellow Laphing (Veg)', 'Yellow Laphing (Veg)', 'Laphing', 0.00, 120.00, 100, 5, '2104', 5.00),
+                            ('LPH-002', 'White Laphing (Veg)', 'White Laphing (Veg)', 'Laphing', 0.00, 130.00, 100, 5, '2104', 5.00),
+                            ('LPH-003', 'Mala Laphing (Non Veg)', 'Mala Laphing (Non Veg)', 'Laphing', 0.00, 160.00, 100, 5, '2104', 5.00),
+                            ('LPH-004', 'Bacon Laphing (Non Veg)', 'Bacon Laphing (Non Veg)', 'Laphing', 0.00, 220.00, 100, 5, '2104', 5.00),
+                            ('SOP-005', 'Manchow Soup (Veg)', 'Manchow Soup (Veg)', 'Soups', 0.00, 170.00, 100, 5, '2104', 5.00),
+                            ('SOP-006', 'Manchow Soup (Non Veg)', 'Manchow Soup (Non Veg)', 'Soups', 0.00, 190.00, 100, 5, '2104', 5.00),
+                            ('SML-004', 'Potato Wedges', 'Potato Wedges', 'Small Bites', 0.00, 200.00, 100, 5, '2106', 5.00),
+                            ('SML-005', 'Peri Peri Fries', 'Peri Peri Fries', 'Small Bites', 0.00, 210.00, 100, 5, '2106', 5.00),
+                            ('SML-006', 'French Fries', 'French Fries', 'Small Bites', 0.00, 180.00, 100, 5, '2106', 5.00),
+                            ('SML-007', 'Chilli Cheese Garlic Fries', 'Chilli Cheese Garlic Fries', 'Small Bites', 0.00, 220.00, 100, 5, '2106', 5.00),
+                            ('SML-008', 'Bacon & Egg with Garlic Bread', 'Bacon & Egg with Garlic Bread', 'Small Bites', 0.00, 250.00, 100, 5, '1905', 5.00),
+                            ('SML-009', 'Chilli Cheese Garlic Bread', 'Chilli Cheese Garlic Bread', 'Small Bites', 0.00, 270.00, 100, 5, '1905', 5.00),
+                            ('WRP-001', 'Hummus with Pita Pocket Wrap (Veg)', 'Hummus with Pita Pocket Wrap (Veg)', 'Wraps', 0.00, 300.00, 100, 5, '1905', 5.00),
+                            ('WRP-002', 'Hummus with Pita Pocket Wrap (Non Veg)', 'Hummus with Pita Pocket Wrap (Non Veg)', 'Wraps', 0.00, 350.00, 100, 5, '1905', 5.00),
+                            ('WRP-003', 'Jamaican Wrap (Non Veg)', 'Jamaican Wrap (Non Veg)', 'Wraps', 0.00, 330.00, 100, 5, '1905', 5.00),
+                            ('WRP-004', 'Mexican Wrap (Veg)', 'Mexican Wrap (Veg)', 'Wraps', 0.00, 270.00, 100, 5, '1905', 5.00),
+                            ('WRP-005', 'Mexican Wrap (Non Veg)', 'Mexican Wrap (Non Veg)', 'Wraps', 0.00, 330.00, 100, 5, '1905', 5.00),
+                            ('PAS-006', 'Pasta Al Fungi (Veg)', 'Pasta Al Fungi (Veg)', 'Pasta & Noodles', 0.00, 350.00, 100, 5, '1902', 5.00),
+                            ('PAS-007', 'Pasta Al Fungi (Non Veg)', 'Pasta Al Fungi (Non Veg)', 'Pasta & Noodles', 0.00, 390.00, 100, 5, '1902', 5.00),
+                            ('PAS-008', 'Spaghetti Pasta (Veg)', 'Spaghetti Pasta (Veg)', 'Pasta & Noodles', 0.00, 350.00, 100, 5, '1902', 5.00),
+                            ('PAS-009', 'Spaghetti Pasta (Non Veg)', 'Spaghetti Pasta (Non Veg)', 'Pasta & Noodles', 0.00, 390.00, 100, 5, '1902', 5.00),
+                            ('SLD-001', 'Waldorf Salad (Veg)', 'Waldorf Salad (Veg)', 'Salads', 0.00, 300.00, 100, 5, '2106', 5.00),
+                            ('SLD-002', 'Chicken Waldorf Salad (Non Veg)', 'Chicken Waldorf Salad (Non Veg)', 'Salads', 0.00, 350.00, 100, 5, '2106', 5.00),
+                            ('SLD-003', 'Chef Special Salad', 'Chef Special Salad', 'Salads', 0.00, 350.00, 100, 5, '2106', 5.00)", conn))
                         {
                             cmd.ExecuteNonQuery();
                         }
@@ -1324,199 +1684,8 @@ namespace MeroDokan
                         }
                     }
 
-                    // Run column migrations for existing databases
+                    // Update AppProfile Default Brand Name to 'The Local Cafe'
                     ExecuteNonQuery(@"
-                        -- AppProfile migrations
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'GSTIN')
-                            ALTER TABLE AppProfile ADD GSTIN NVARCHAR(50) NULL;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'StateName')
-                            ALTER TABLE AppProfile ADD StateName NVARCHAR(100) NOT NULL DEFAULT 'Delhi';
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'StateCode')
-                            ALTER TABLE AppProfile ADD StateCode NVARCHAR(10) NOT NULL DEFAULT '07';
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'IsTaxInclusive')
-                            ALTER TABLE AppProfile ADD IsTaxInclusive BIT NOT NULL DEFAULT 1;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'DefaultBillType')
-                            ALTER TABLE AppProfile ADD DefaultBillType NVARCHAR(50) NOT NULL DEFAULT 'GST';
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'DefaultGSTRate')
-                            ALTER TABLE AppProfile ADD DefaultGSTRate DECIMAL(18,2) NOT NULL DEFAULT 5.00;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'UPIId')
-                            ALTER TABLE AppProfile ADD UPIId NVARCHAR(100) NULL;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'UPIName')
-                            ALTER TABLE AppProfile ADD UPIName NVARCHAR(100) NULL;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'AutoShowQROnUPI')
-                            ALTER TABLE AppProfile ADD AutoShowQROnUPI BIT NOT NULL DEFAULT 1;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'PrintQROnReceipt')
-                            ALTER TABLE AppProfile ADD PrintQROnReceipt BIT NOT NULL DEFAULT 1;
-
-                        -- Services migrations
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Services') AND name = 'SACCode')
-                            ALTER TABLE Services ADD SACCode NVARCHAR(50) NOT NULL DEFAULT '996331';
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Services') AND name = 'GSTRate')
-                            ALTER TABLE Services ADD GSTRate DECIMAL(18,2) NOT NULL DEFAULT 5.00;
-
-                        -- Products migrations
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Products') AND name = 'HSNCode')
-                            ALTER TABLE Products ADD HSNCode NVARCHAR(50) NOT NULL DEFAULT '2106';
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Products') AND name = 'GSTRate')
-                            ALTER TABLE Products ADD GSTRate DECIMAL(18,2) NOT NULL DEFAULT 5.00;
-
-                        -- Customers migrations
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Customers') AND name = 'GSTIN')
-                            ALTER TABLE Customers ADD GSTIN NVARCHAR(50) NULL;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Customers') AND name = 'StateName')
-                            ALTER TABLE Customers ADD StateName NVARCHAR(100) NOT NULL DEFAULT 'Delhi';
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Customers') AND name = 'StateCode')
-                            ALTER TABLE Customers ADD StateCode NVARCHAR(10) NOT NULL DEFAULT '07';
-
-                        -- Sales migrations
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'IsGSTBill')
-                            ALTER TABLE Sales ADD IsGSTBill BIT NOT NULL DEFAULT 1;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'TaxableAmount')
-                            ALTER TABLE Sales ADD TaxableAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'CGSTAmount')
-                            ALTER TABLE Sales ADD CGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'SGSTAmount')
-                            ALTER TABLE Sales ADD SGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'IGSTAmount')
-                            ALTER TABLE Sales ADD IGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'CustomerGSTIN')
-                            ALTER TABLE Sales ADD CustomerGSTIN NVARCHAR(50) NULL;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'PlaceOfSupply')
-                            ALTER TABLE Sales ADD PlaceOfSupply NVARCHAR(100) NULL;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'IsInterState')
-                            ALTER TABLE Sales ADD IsInterState BIT NOT NULL DEFAULT 0;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'CashAmount')
-                            ALTER TABLE Sales ADD CashAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'OnlineAmount')
-                            ALTER TABLE Sales ADD OnlineAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
-
-                        -- SaleDetails migrations
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SaleDetails') AND name = 'HSNSAC')
-                            ALTER TABLE SaleDetails ADD HSNSAC NVARCHAR(50) NULL;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SaleDetails') AND name = 'GSTRate')
-                            ALTER TABLE SaleDetails ADD GSTRate DECIMAL(18,2) NOT NULL DEFAULT 18.00;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SaleDetails') AND name = 'TaxableAmount')
-                            ALTER TABLE SaleDetails ADD TaxableAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SaleDetails') AND name = 'CGSTAmount')
-                            ALTER TABLE SaleDetails ADD CGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SaleDetails') AND name = 'SGSTAmount')
-                            ALTER TABLE SaleDetails ADD SGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SaleDetails') AND name = 'IGSTAmount')
-                            ALTER TABLE SaleDetails ADD IGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
-                        -- Appointments migrations
-                        ALTER TABLE Appointments ALTER COLUMN AppointmentTime NVARCHAR(100) NOT NULL;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Appointments') AND name = 'ServiceStaffIds')
-                            ALTER TABLE Appointments ADD ServiceStaffIds NVARCHAR(1000) NULL;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Appointments') AND name = 'SaleId')
-                            ALTER TABLE Appointments ADD SaleId INT NULL FOREIGN KEY REFERENCES Sales(Id) ON DELETE SET NULL;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'AppointmentId')
-                            ALTER TABLE Sales ADD AppointmentId INT NULL FOREIGN KEY REFERENCES Appointments(Id) ON DELETE SET NULL;
-                        -- DailySettlements migrations
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('DailySettlements') AND name = 'CardSales')
-                            ALTER TABLE DailySettlements ADD CardSales DECIMAL(18,2) NOT NULL DEFAULT 0.00;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('DailySettlements') AND name = 'QRSales')
-                            ALTER TABLE DailySettlements ADD QRSales DECIMAL(18,2) NOT NULL DEFAULT 0.00;
-
-                        -- ================= CAFE POS SCHEMA MIGRATIONS =================
-                        -- Cafe Tables & Floor Areas
-                        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'CafeTables')
-                        BEGIN
-                            CREATE TABLE CafeTables (
-                                Id INT PRIMARY KEY IDENTITY(1,1),
-                                TableNumber NVARCHAR(50) NOT NULL UNIQUE,
-                                TableName NVARCHAR(100) NOT NULL,
-                                Section NVARCHAR(50) NOT NULL DEFAULT 'Main Dining',
-                                Capacity INT NOT NULL DEFAULT 4,
-                                Status NVARCHAR(30) NOT NULL DEFAULT 'Available', -- Available, Running, Printed, Reserved
-                                CurrentBillAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
-                                OrderStartTime DATETIME NULL,
-                                BilledTime DATETIME NULL,
-                                ActiveKotNumbers NVARCHAR(200) NULL,
-                                ActiveSaleId INT NULL,
-                                CurrentSteward NVARCHAR(100) NULL,
-                                IsActive BIT NOT NULL DEFAULT 1
-                            );
-
-                            -- Seed Tables 1 to 10 and Waiting 1 to 5
-                            INSERT INTO CafeTables (TableNumber, TableName, Section, Capacity, Status) VALUES
-                            ('1', 'Table 1', 'Main Dining', 2, 'Available'),
-                            ('2', 'Table 2', 'Main Dining', 4, 'Available'),
-                            ('3', 'Table 3', 'Main Dining', 4, 'Available'),
-                            ('4', 'Table 4', 'Main Dining', 4, 'Available'),
-                            ('5', 'Table 5', 'Main Dining', 6, 'Available'),
-                            ('6', 'Table 6', 'Main Dining', 2, 'Available'),
-                            ('7', 'Table 7', 'Main Dining', 4, 'Available'),
-                            ('8', 'Table 8', 'Main Dining', 4, 'Available'),
-                            ('9', 'Table 9', 'Main Dining', 6, 'Available'),
-                            ('10', 'Table 10', 'Main Dining', 8, 'Available'),
-                            ('Waiting 1', 'Waiting Token 1', 'Takeaway & Waiting', 1, 'Available'),
-                            ('Waiting 2', 'Waiting Token 2', 'Takeaway & Waiting', 1, 'Available'),
-                            ('Waiting 3', 'Waiting Token 3', 'Takeaway & Waiting', 1, 'Available'),
-                            ('Waiting 4', 'Waiting Token 4', 'Takeaway & Waiting', 1, 'Available'),
-                            ('Waiting 5', 'Waiting Token 5', 'Takeaway & Waiting', 1, 'Available');
-                        END
-
-                        -- Kitchen Order Tickets (KOT Master)
-                        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'KOTMaster')
-                        BEGIN
-                            CREATE TABLE KOTMaster (
-                                Id INT PRIMARY KEY IDENTITY(1,1),
-                                KOTNumber INT NOT NULL,
-                                TableNumber NVARCHAR(50) NOT NULL,
-                                OrderType NVARCHAR(50) NOT NULL DEFAULT 'DINING', -- DINING, Take Away, Delivery
-                                Steward NVARCHAR(100) NULL,
-                                Status NVARCHAR(30) NOT NULL DEFAULT 'Active', -- Active, Served, Billed, Voided
-                                CreatedAt DATETIME NOT NULL DEFAULT GETDATE(),
-                                KotComment NVARCHAR(500) NULL,
-                                IsVoided BIT NOT NULL DEFAULT 0,
-                                SaleId INT NULL
-                            );
-                        END
-
-                        -- KOT Details (Itemized Kitchen Orders)
-                        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'KOTDetails')
-                        BEGIN
-                            CREATE TABLE KOTDetails (
-                                Id INT PRIMARY KEY IDENTITY(1,1),
-                                KOTId INT NOT NULL FOREIGN KEY REFERENCES KOTMaster(Id) ON DELETE CASCADE,
-                                ProductId INT NULL,
-                                ItemName NVARCHAR(150) NOT NULL,
-                                Quantity INT NOT NULL DEFAULT 1,
-                                Rate DECIMAL(18,2) NOT NULL DEFAULT 0.00,
-                                Amount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
-                                Instructions NVARCHAR(200) NULL,
-                                IsVoided BIT NOT NULL DEFAULT 0,
-                                VoidReason NVARCHAR(300) NULL,
-                                VoidedAt DATETIME NULL,
-                                CreatedAt DATETIME NOT NULL DEFAULT GETDATE()
-                            );
-                        END
-
-                        -- Cafe Fields for Sales Table
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'OrderType')
-                            ALTER TABLE Sales ADD OrderType NVARCHAR(50) NOT NULL DEFAULT 'DINING';
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'TableNumber')
-                            ALTER TABLE Sales ADD TableNumber NVARCHAR(50) NULL;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'KotNumbers')
-                            ALTER TABLE Sales ADD KotNumbers NVARCHAR(200) NULL;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'PackingCharges')
-                            ALTER TABLE Sales ADD PackingCharges DECIMAL(18,2) NOT NULL DEFAULT 0.00;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'StewardName')
-                            ALTER TABLE Sales ADD StewardName NVARCHAR(100) NULL;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'RoundOff')
-                            ALTER TABLE Sales ADD RoundOff DECIMAL(18,2) NOT NULL DEFAULT 0.00;
-
-                        -- Cafe Fields for AppProfile
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'ReceiptFooterText')
-                            ALTER TABLE AppProfile ADD ReceiptFooterText NVARCHAR(500) NOT NULL DEFAULT 'Tashi Delek! Thukje Che!';
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'DefaultPackingCharge')
-                            ALTER TABLE AppProfile ADD DefaultPackingCharge DECIMAL(18,2) NOT NULL DEFAULT 40.00;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'KitchenPrinterName')
-                            ALTER TABLE AppProfile ADD KitchenPrinterName NVARCHAR(200) NULL;
-                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AppProfile') AND name = 'BillingPrinterName')
-                            ALTER TABLE AppProfile ADD BillingPrinterName NVARCHAR(200) NULL;
-
-                        -- Update AppProfile Default Brand Name to 'The Local Cafe'
                         EXEC sp_executesql N'
                         UPDATE AppProfile 
                         SET ShopName = ''The Local Cafe'', 
@@ -1532,163 +1701,138 @@ namespace MeroDokan
                         WHERE LogoPath IS NULL OR LogoPath = '''';
                         ';
 
-                        -- Seed Cafe Categories & Menu Items if none exist or only default salon categories exist
-                        IF NOT EXISTS (SELECT * FROM Categories WHERE Name = 'Korean Specials')
-                        BEGIN
-                            INSERT INTO Categories (Name, Type, HsnSacCode, GSTRate) VALUES 
-                            ('AddOn', 'Product', '2106', 5.00),
-                            ('Cakes & Desserts', 'Product', '1905', 5.00),
-                            ('Coffee & Hot Brews', 'Product', '0901', 5.00),
-                            ('Drinks & Beverages', 'Product', '2202', 5.00),
-                            ('Korean Specials', 'Product', '2106', 5.00),
-                            ('Laphing & Soups', 'Product', '2104', 5.00),
-                            ('Pasta NonVeg', 'Product', '1902', 5.00),
-                            ('Pasta Veg', 'Product', '1902', 5.00),
-                            ('Pizza NonVeg', 'Product', '1905', 5.00),
-                            ('Pizza Veg', 'Product', '1905', 5.00),
-                            ('Breakfast & Bread', 'Product', '1905', 5.00);
 
-                            -- Seed Real Cafe Products & Dishes using dynamic SQL
-                            EXEC sp_executesql N'
-                            INSERT INTO Products (Code, Name, Description, Category, PurchasePrice, SalesPrice, Stock, MinStockLevel, HSNCode, GSTRate) VALUES
-                            (''CF-101'', ''Kimbap table Veg'', ''Authentic seasoned rice and vegetable rolled in roasted seaweed'', ''Korean Specials'', 180.00, 350.00, 100, 10, ''2106'', 5.00),
-                            (''CF-102'', ''Veg Laphing Soupy'', ''Cold Tibetan street mung bean noodles in savory garlic chili soup'', ''Laphing & Soups'', 50.00, 120.00, 100, 10, ''2104'', 5.00),
-                            (''CF-103'', ''PASTA AL FUNGI CHICKEN'', ''Creamy mushroom garlic sauce with tender grilled chicken chunks'', ''Pasta NonVeg'', 200.00, 390.00, 100, 10, ''1902'', 5.00),
-                            (''CF-104'', ''PASTA AL FUNGI VEG'', ''Rich creamy wild mushroom herbs sauce with penne'', ''Pasta Veg'', 160.00, 320.00, 100, 10, ''1902'', 5.00),
-                            (''CF-105'', ''PASTA ARRIBIATA CHICKEN'', ''Spicy rich tomato basil sauce with seasoned chicken pieces'', ''Pasta NonVeg'', 190.00, 380.00, 100, 10, ''1902'', 5.00),
-                            (''CF-106'', ''PASTA ARRIBIATA VEG'', ''Classic spicy garlic and tomato herb pasta'', ''Pasta Veg'', 150.00, 310.00, 100, 10, ''1902'', 5.00),
-                            (''CF-107'', ''Grilled chicken spaghetti'', ''Olive oil garlic tossed spaghetti with herb grilled chicken breast'', ''Pasta NonVeg'', 200.00, 390.00, 100, 10, ''1902'', 5.00),
-                            (''CF-108'', ''Shanghai Pasta Chicken'', ''Wok tossed fusion pasta with Oriental sauces and chicken'', ''Pasta NonVeg'', 200.00, 390.00, 100, 10, ''1902'', 5.00),
-                            (''CF-109'', ''Shanghai Amdo Pasta Chicken'', ''Traditional Amdo style seasoned thick pasta with shredded chicken'', ''Pasta NonVeg'', 210.00, 400.00, 100, 10, ''1902'', 5.00),
-                            (''CF-110'', ''Shanghai pasta veg'', ''Wok tossed pasta with bell peppers, mushrooms and chili soya'', ''Pasta Veg'', 160.00, 320.00, 100, 10, ''1902'', 5.00),
-                            (''CF-111'', ''Shanghai Amdo Pasta Veg'', ''Amdo handmade rustic pasta with stir fried seasonal vegetables'', ''Pasta Veg'', 170.00, 330.00, 100, 10, ''1902'', 5.00),
-                            (''CF-112'', ''Bang bang noodles non veg'', ''Spicy Sichuan chili oil sesame noodles with shredded chicken'', ''Korean Specials'', 180.00, 350.00, 100, 10, ''2106'', 5.00),
-                            (''CF-113'', ''Bang bang noodles veg'', ''Handmade flat noodles in zesty chili sesame scallion dressing'', ''Korean Specials'', 140.00, 280.00, 100, 10, ''2106'', 5.00),
-                            (''CF-114'', ''Tibetan Bread'', ''Fresh fluffy pan-fried traditional Himalayan bread'', ''Breakfast & Bread'', 30.00, 80.00, 100, 10, ''1905'', 5.00),
-                            (''CF-115'', ''Peach Ice Tea'', ''Refreshing artisanal black tea infused with sweet peach essence and lemon'', ''Drinks & Beverages'', 40.00, 140.00, 100, 10, ''2202'', 5.00),
-                            (''CF-116'', ''HIMALAYAN BREAKFAST'', ''Tibetan bread, eggs to order, butter, honey, and local sausage'', ''Breakfast & Bread'', 120.00, 280.00, 100, 10, ''1905'', 5.00),
-                            (''CF-117'', ''VEG PIZZA'', ''Woodfired thin crust pizza loaded with mozzarella, peppers and olives'', ''Pizza Veg'', 160.00, 350.00, 100, 10, ''1905'', 5.00),
-                            (''CF-118'', ''ADD ON EXTRA CHICKEN/EGG'', ''Extra portion of succulent grilled chicken or sunny side egg'', ''AddOn'', 25.00, 60.00, 100, 10, ''2106'', 5.00),
-                            (''CF-119'', ''Espresso / Americano'', ''Freshly brewed single origin Arabica coffee shot'', ''Coffee & Hot Brews'', 35.00, 110.00, 100, 10, ''0901'', 5.00),
-                            (''CF-120'', ''Cafe Latte / Cappuccino'', ''Velvety steamed milk with rich espresso shot and silky crema'', ''Coffee & Hot Brews'', 45.00, 150.00, 100, 10, ''0901'', 5.00);
-                            ';
-                        END
 
-                        -- Seed Stewards / Waiters if only default salon staff exist
+                        -- Seed Stewards / Waiters and Direct Counter staff
                         IF NOT EXISTS (SELECT * FROM Staff WHERE Name IN ('Tashi', 'Pemba', 'Karma'))
                         BEGIN
                             INSERT INTO Staff (Name, Phone, Email, Role, CommissionRate, IsActive) VALUES
+                            ('Direct Counter', '0000000000', 'counter@thelocalcafe.com', 'Counter & Cashier', 0.00, 1),
                             ('Tashi', '9971500001', 'tashi@thelocalcafe.com', 'Steward', 0.00, 1),
                             ('Pemba', '9971500002', 'pemba@thelocalcafe.com', 'Steward', 0.00, 1),
                             ('Karma', '9971500003', 'karma@thelocalcafe.com', 'Captain', 0.00, 1),
                             ('Dawa', '9971500004', 'dawa@thelocalcafe.com', 'Steward', 0.00, 1),
                             ('Passang', '9971500005', 'passang@thelocalcafe.com', 'Chef', 0.00, 1);
                         END
+                        ELSE IF NOT EXISTS (SELECT * FROM Staff WHERE Name = 'Direct Counter')
+                        BEGIN
+                            INSERT INTO Staff (Name, Phone, Email, Role, CommissionRate, IsActive) VALUES
+                            ('Direct Counter', '0000000000', 'counter@thelocalcafe.com', 'Counter & Cashier', 0.00, 1);
+                        END
+
+                        -- Ensure default theme is Emerald Mint
+                        UPDATE AppProfile SET ThemePreset = 'Emerald Mint' WHERE ThemePreset IS NULL OR ThemePreset = '' OR ThemePreset = 'Dark Slate';
                     ", conn);
 
                     // Clean up any old legacy salon rows from MeroDokanCafeDB to ensure 100% pure Cafe content
-                    ExecuteNonQuery(@"
-                        -- 1. Remove old Salon products
-                        DELETE FROM Products 
-                        WHERE Category IN ('Hair Care Products', 'Skin Care Products', 'Grooming Accessories', 'Hair Services', 'Beard & Grooming', 'Facial & Skin Care', 'Hair Spa & Treatments', 'Body Massage & Spa', 'Manicure & Pedicure') 
-                           OR Code LIKE 'PRD-%' 
-                           OR Name LIKE '%Serum%' 
-                           OR Name LIKE '%Shampoo%' 
-                           OR Name LIKE '%Clay Wax%' 
-                           OR Name LIKE '%Beard Oil%' 
-                           OR Name LIKE '%Face Wash%';
+                    try
+                    {
+                        ExecuteNonQuery(@"
+                            -- 1. Remove old Salon products (only if not referenced by sales or returns)
+                            DELETE FROM Products 
+                            WHERE (Category IN ('Hair Care Products', 'Skin Care Products', 'Grooming Accessories', 'Hair Services', 'Beard & Grooming', 'Facial & Skin Care', 'Hair Spa & Treatments', 'Body Massage & Spa', 'Manicure & Pedicure') 
+                               OR Code LIKE 'PRD-%' 
+                               OR Name LIKE '%Serum%' 
+                               OR Name LIKE '%Shampoo%' 
+                               OR Name LIKE '%Clay Wax%' 
+                               OR Name LIKE '%Beard Oil%' 
+                               OR Name LIKE '%Face Wash%')
+                              AND Id NOT IN (SELECT ProductId FROM SaleDetails WHERE ProductId IS NOT NULL)
+                              AND Id NOT IN (SELECT ProductId FROM SalesReturnDetails WHERE ProductId IS NOT NULL);
 
-                        -- 2. Remove old Salon categories
-                        DELETE FROM Categories 
-                        WHERE Name IN ('Hair Services', 'Beard & Grooming', 'Facial & Skin Care', 'Hair Spa & Treatments', 'Body Massage & Spa', 'Manicure & Pedicure', 'Hair Care Products', 'Skin Care Products', 'Grooming Accessories');
+                            -- 2. Remove old Salon categories
+                            DELETE FROM Categories 
+                            WHERE Name IN ('Hair Services', 'Beard & Grooming', 'Facial & Skin Care', 'Hair Spa & Treatments', 'Body Massage & Spa', 'Manicure & Pedicure', 'Hair Care Products', 'Skin Care Products', 'Grooming Accessories');
 
-                        -- 3. Remove old Salon staff
-                        DELETE FROM Staff 
-                        WHERE Name IN ('Rahul Sharma', 'Priya Thapa', 'Alex Shrestha', 'Maya Gurung');
+                            -- 3. Remove old Salon staff
+                            DELETE FROM Staff 
+                            WHERE Name IN ('Rahul Sharma', 'Priya Thapa', 'Alex Shrestha', 'Maya Gurung');
 
-                        -- 4. Clean StylistRoles and replace with Cafe roles
-                        DELETE FROM StylistRoles WHERE RoleName LIKE '%Stylist%' OR RoleName LIKE '%Barber%' OR RoleName LIKE '%Beautician%' OR RoleName LIKE '%Colorist%' OR RoleName LIKE '%Salon%' OR RoleName LIKE '%Spa%' OR RoleName LIKE '%Nail%' OR RoleName LIKE '%Apprentice%';
+                            -- 4. Clean StylistRoles and replace with Cafe roles
+                            DELETE FROM StylistRoles WHERE RoleName LIKE '%Stylist%' OR RoleName LIKE '%Barber%' OR RoleName LIKE '%Beautician%' OR RoleName LIKE '%Colorist%' OR RoleName LIKE '%Salon%' OR RoleName LIKE '%Spa%' OR RoleName LIKE '%Nail%' OR RoleName LIKE '%Apprentice%';
 
-                        IF NOT EXISTS (SELECT * FROM StylistRoles WHERE RoleName = 'Steward')
-                        BEGIN
-                            INSERT INTO StylistRoles (RoleName, Description, DefaultCommissionRate, IsActive) VALUES
-                            ('Head Chef', 'Executive chef overseeing kitchen preparation and quality', 0.00, 1),
-                            ('Sous Chef / Cook', 'Cooking, food preparation, continental & oriental dishes', 0.00, 1),
-                            ('Senior Steward / Captain', 'Table management, guest greeting and order oversight', 0.00, 1),
-                            ('Steward', 'Order taking, table service, KOT serving and customer care', 0.00, 1),
-                            ('Barista & Beverage Master', 'Coffee brewing, shakes, mocktails and iced teas', 0.00, 1),
-                            ('Pastry & Bakery Chef', 'Tibetan breads, bakery items and desserts', 0.00, 1),
-                            ('Cashier & Front Desk', 'Billing counter settlement and customer reception', 0.00, 1),
-                            ('Kitchen Helper / Busser', 'Kitchen assistance and table clearance', 0.00, 1);
-                        END
+                            IF NOT EXISTS (SELECT * FROM StylistRoles WHERE RoleName = 'Steward')
+                            BEGIN
+                                INSERT INTO StylistRoles (RoleName, Description, DefaultCommissionRate, IsActive) VALUES
+                                ('Head Chef', 'Executive chef overseeing kitchen preparation and quality', 0.00, 1),
+                                ('Sous Chef / Cook', 'Cooking, food preparation, continental & oriental dishes', 0.00, 1),
+                                ('Senior Steward / Captain', 'Table management, guest greeting and order oversight', 0.00, 1),
+                                ('Steward', 'Order taking, table service, KOT serving and customer care', 0.00, 1),
+                                ('Barista & Beverage Master', 'Coffee brewing, shakes, mocktails and iced teas', 0.00, 1),
+                                ('Pastry & Bakery Chef', 'Tibetan breads, bakery items and desserts', 0.00, 1),
+                                ('Cashier & Front Desk', 'Billing counter settlement and customer reception', 0.00, 1),
+                                ('Kitchen Helper / Busser', 'Kitchen assistance and table clearance', 0.00, 1);
+                            END
 
-                        -- 5. Update any old salon supplier or customer records
-                        DELETE FROM Suppliers WHERE Name LIKE '%L''Oreal%' OR Name LIKE '%Beauty & Spa%';
-                        DELETE FROM Customers WHERE Email LIKE '%merosaloon.com%';
+                            -- 5. Update any old salon supplier or customer records
+                            DELETE FROM Suppliers WHERE Name LIKE '%L''Oreal%' OR Name LIKE '%Beauty & Spa%';
+                            DELETE FROM Customers WHERE Email LIKE '%merosaloon.com%';
 
-                        -- 6. Purge any Salon HSN / SAC codes from HsnSacMaster and re-seed pure Cafe GST records
-                        DELETE FROM HsnSacMaster 
-                        WHERE Code IN ('999721', '999722', '999729', '999723', '998399', '3305', '3304', '3307', '3303', '3401', '8214', '8516', '9615', '3004', '4818')
-                           OR Description LIKE '%salon%' 
-                           OR Description LIKE '%hair%' 
-                           OR Description LIKE '%beauty%' 
-                           OR Description LIKE '%barber%' 
-                           OR Description LIKE '%manicure%' 
-                           OR Description LIKE '%facial%' 
-                           OR Description LIKE '%spa%' 
-                           OR Description LIKE '%massage%';
+                            -- 6. Purge any Salon HSN / SAC codes from HsnSacMaster and re-seed pure Cafe GST records
+                            DELETE FROM HsnSacMaster 
+                            WHERE Code IN ('999721', '999722', '999729', '999723', '998399', '3305', '3304', '3307', '3303', '3401', '8214', '8516', '9615', '3004', '4818')
+                               OR Description LIKE '%salon%' 
+                               OR Description LIKE '%hair%' 
+                               OR Description LIKE '%beauty%' 
+                               OR Description LIKE '%barber%' 
+                               OR Description LIKE '%manicure%' 
+                               OR Description LIKE '%facial%' 
+                               OR Description LIKE '%spa%' 
+                               OR Description LIKE '%massage%';
 
-                        IF NOT EXISTS (SELECT * FROM HsnSacMaster WHERE Code = '996331')
-                        BEGIN
-                            INSERT INTO HsnSacMaster (Code, Type, Description, GSTRate, IsActive) VALUES 
-                            ('996331', 'SAC', 'Restaurant, cafe and local dining food serving services (Air-conditioned & indoor seating)', 5.00, 1),
-                            ('996332', 'SAC', 'Takeaway, packaging counter and home delivery food / beverage services', 5.00, 1),
-                            ('996333', 'SAC', 'Outdoor cafe catering and private event beverage food serving services', 5.00, 1),
-                            ('996339', 'SAC', 'Other food and beverage preparation, barista brews and hospitality dining services', 5.00, 1),
-                            ('0901', 'HSN', 'Coffee beans, roasted coffee, ground espresso blends, filter coffee and beans', 5.00, 1),
-                            ('0902', 'HSN', 'Tea leaves, green tea, Darjeeling brew, organic herbal infusions and specialty teas', 5.00, 1),
-                            ('1902', 'HSN', 'Pasta, spaghetti, macaroni, noodles, chowmein and soupy laphing preparations', 12.00, 1),
-                            ('1905', 'HSN', 'Bakery products, cakes, pastries, croissants, toasted bread, cookies, Tibetan bread', 18.00, 1),
-                            ('2106', 'HSN', 'Ready food preparations, momos, pizzas, sandwiches, snacks, sauces and cafe dishes', 5.00, 1),
-                            ('2202', 'HSN', 'Non-alcoholic beverages, mocktails, iced teas, fruit drinks, craft coolers and sodas', 18.00, 1),
-                            ('0401', 'HSN', 'Fresh milk, dairy cream and milk beverages for coffee & shakes', 5.00, 1),
-                            ('0406', 'HSN', 'Cheese (mozzarella, cheddar, parmesan) for pizzas, sandwiches and pasta', 12.00, 1),
-                            ('2009', 'HSN', 'Fresh fruit juices, vegetable smoothies and cold-pressed drinks', 12.00, 1),
-                            ('4819', 'HSN', 'Food packaging containers, takeaway boxes, beverage cups, paper bags', 18.00, 1);
-                        END
+                            IF NOT EXISTS (SELECT * FROM HsnSacMaster WHERE Code = '996331')
+                            BEGIN
+                                INSERT INTO HsnSacMaster (Code, Type, Description, GSTRate, IsActive) VALUES 
+                                ('996331', 'SAC', 'Restaurant, cafe and local dining food serving services (Air-conditioned & indoor seating)', 5.00, 1),
+                                ('996332', 'SAC', 'Takeaway, packaging counter and home delivery food / beverage services', 5.00, 1),
+                                ('996333', 'SAC', 'Outdoor cafe catering and private event beverage food serving services', 5.00, 1),
+                                ('996339', 'SAC', 'Other food and beverage preparation, barista brews and hospitality dining services', 5.00, 1),
+                                ('0901', 'HSN', 'Coffee beans, roasted coffee, ground espresso blends, filter coffee and beans', 5.00, 1),
+                                ('0902', 'HSN', 'Tea leaves, green tea, Darjeeling brew, organic herbal infusions and specialty teas', 5.00, 1),
+                                ('1902', 'HSN', 'Pasta, spaghetti, macaroni, noodles, chowmein and soupy laphing preparations', 12.00, 1),
+                                ('1905', 'HSN', 'Bakery products, cakes, pastries, croissants, toasted bread, cookies, Tibetan bread', 18.00, 1),
+                                ('2106', 'HSN', 'Ready food preparations, momos, pizzas, sandwiches, snacks, sauces and cafe dishes', 5.00, 1),
+                                ('2202', 'HSN', 'Non-alcoholic beverages, mocktails, iced teas, fruit drinks, craft coolers and sodas', 18.00, 1),
+                                ('0401', 'HSN', 'Fresh milk, dairy cream and milk beverages for coffee & shakes', 5.00, 1),
+                                ('0406', 'HSN', 'Cheese (mozzarella, cheddar, parmesan) for pizzas, sandwiches and pasta', 12.00, 1),
+                                ('2009', 'HSN', 'Fresh fruit juices, vegetable smoothies and cold-pressed drinks', 12.00, 1),
+                                ('4819', 'HSN', 'Food packaging containers, takeaway boxes, beverage cups, paper bags', 18.00, 1);
+                            END
 
-                        -- 7. Fix any Categories or Products that had legacy salon codes
-                        UPDATE Categories SET HsnSacCode = '996331', GSTRate = 5.00 WHERE HsnSacCode IN ('999721', '999722', '999729', '3305', '3304', '8214') OR HsnSacCode IS NULL;
-                        UPDATE Products SET HSNCode = '2106', GSTRate = 5.00 WHERE HSNCode IN ('3305', '3304', '8214', '3401', '3303') OR HSNCode IS NULL;
+                            -- 7. Fix any Categories or Products that had legacy salon codes
+                            UPDATE Categories SET HsnSacCode = '996331', GSTRate = 5.00 WHERE HsnSacCode IN ('999721', '999722', '999729', '3305', '3304', '8214') OR HsnSacCode IS NULL;
+                            UPDATE Products SET HSNCode = '2106', GSTRate = 5.00 WHERE HSNCode IN ('3305', '3304', '8214', '3401', '3303') OR HSNCode IS NULL;
 
-                        -- 8. Cleanse AppProfile table from legacy salon references
-                        UPDATE AppProfile SET 
-                            Email = 'contact@thelocalcafe.com',
-                            BackupFolderPath = 'D:\MeroDokanCafe\DailyDatabaseBackup',
-                            OwnerName = 'Cafe Manager',
-                            ShopName = 'The Local Cafe'
-                        WHERE Email LIKE '%merosaloon%' OR BackupFolderPath LIKE '%Saloon%' OR OwnerName LIKE '%Saloon%' OR ShopName LIKE '%Saloon%';
+                            -- 8. Cleanse AppProfile table from legacy salon references
+                            UPDATE AppProfile SET 
+                                Email = 'contact@thelocalcafe.com',
+                                BackupFolderPath = 'D:\MeroDokanCafe\DailyDatabaseBackup',
+                                OwnerName = 'Cafe Manager',
+                                ShopName = 'The Local Cafe'
+                            WHERE Email LIKE '%merosaloon%' OR BackupFolderPath LIKE '%Saloon%' OR OwnerName LIKE '%Saloon%' OR ShopName LIKE '%Saloon%';
 
-                        -- 9. Seed Standard Cafe Raw Materials / Kitchen Inventory if none exist
-                        IF NOT EXISTS (SELECT * FROM RawMaterials)
-                        BEGIN
-                            INSERT INTO RawMaterials (Code, Name, Category, Unit, CurrentStock, MinStockLevel, UnitPrice) VALUES
-                            ('RAW-001', 'Amul Taaza Fresh Milk 1L', 'Dairy & Milk', 'Litre', 50.000, 10.000, 64.00),
-                            ('RAW-002', 'Arabica Dark Roast Coffee Beans', 'Coffee & Tea', 'Kg', 15.000, 3.000, 950.00),
-                            ('RAW-003', 'Darjeeling Special Tea Leaves', 'Coffee & Tea', 'Kg', 8.000, 2.000, 480.00),
-                            ('RAW-004', 'Mozzarella Diced Pizza Cheese', 'Dairy & Milk', 'Kg', 20.000, 5.000, 450.00),
-                            ('RAW-005', 'Amul Salted Butter Block', 'Dairy & Milk', 'Kg', 12.000, 3.000, 520.00),
-                            ('RAW-006', 'Fresh Chicken Boneless Breast', 'Meats & Non-Veg', 'Kg', 25.000, 5.000, 280.00),
-                            ('RAW-007', 'Refined Wheat Flour (Maida 00)', 'Pantry & Grains', 'Kg', 40.000, 10.000, 45.00),
-                            ('RAW-008', 'Granulated White Sugar', 'Pantry & Grains', 'Kg', 30.000, 5.000, 44.00),
-                            ('RAW-009', 'Durum Wheat Penne Pasta', 'Pantry & Grains', 'Kg', 18.000, 4.000, 140.00),
-                            ('RAW-010', 'San Marzano Tomato Pizza Sauce', 'Pantry & Grains', 'Kg', 15.000, 3.000, 180.00),
-                            ('RAW-011', 'Vanilla & Caramel Flavor Syrups', 'Beverages & Syrups', 'Litre', 8.000, 2.000, 380.00),
-                            ('RAW-012', 'Refined Sunflower Cooking Oil', 'Pantry & Grains', 'Litre', 30.000, 5.000, 135.00),
-                            ('RAW-013', 'Kraft Takeaway Paper Meal Boxes', 'Packaging & Disposables', 'Pcs', 200.000, 50.000, 6.50),
-                            ('RAW-014', 'Hot Beverage Paper Cups 250ml', 'Packaging & Disposables', 'Pcs', 300.000, 50.000, 4.00);
-                        END
-                    ", conn);
+                            -- 9. Seed Standard Cafe Raw Materials / Kitchen Inventory if none exist
+                            IF NOT EXISTS (SELECT * FROM RawMaterials)
+                            BEGIN
+                                INSERT INTO RawMaterials (Code, Name, Category, Unit, CurrentStock, MinStockLevel, UnitPrice) VALUES
+                                ('RAW-001', 'Amul Taaza Fresh Milk 1L', 'Dairy & Milk', 'Litre', 50.000, 10.000, 64.00),
+                                ('RAW-002', 'Arabica Dark Roast Coffee Beans', 'Coffee & Tea', 'Kg', 15.000, 3.000, 950.00),
+                                ('RAW-003', 'Darjeeling Special Tea Leaves', 'Coffee & Tea', 'Kg', 8.000, 2.000, 480.00),
+                                ('RAW-004', 'Mozzarella Diced Pizza Cheese', 'Dairy & Milk', 'Kg', 20.000, 5.000, 450.00),
+                                ('RAW-005', 'Amul Salted Butter Block', 'Dairy & Milk', 'Kg', 12.000, 3.000, 520.00),
+                                ('RAW-006', 'Fresh Chicken Boneless Breast', 'Meats & Non-Veg', 'Kg', 25.000, 5.000, 280.00),
+                                ('RAW-007', 'Refined Wheat Flour (Maida 00)', 'Pantry & Grains', 'Kg', 40.000, 10.000, 45.00),
+                                ('RAW-008', 'Granulated White Sugar', 'Pantry & Grains', 'Kg', 30.000, 5.000, 44.00),
+                                ('RAW-009', 'Durum Wheat Penne Pasta', 'Pantry & Grains', 'Kg', 18.000, 4.000, 140.00),
+                                ('RAW-010', 'San Marzano Tomato Pizza Sauce', 'Pantry & Grains', 'Kg', 15.000, 3.000, 180.00),
+                                ('RAW-011', 'Vanilla & Caramel Flavor Syrups', 'Beverages & Syrups', 'Litre', 8.000, 2.000, 380.00),
+                                ('RAW-012', 'Refined Sunflower Cooking Oil', 'Pantry & Grains', 'Litre', 30.000, 5.000, 135.00),
+                                ('RAW-013', 'Kraft Takeaway Paper Meal Boxes', 'Packaging & Disposables', 'Pcs', 200.000, 50.000, 6.50),
+                                ('RAW-014', 'Hot Beverage Paper Cups 250ml', 'Packaging & Disposables', 'Pcs', 300.000, 50.000, 4.00);
+                            END
+                        ", conn);
+                    }
+                    catch { }
 
                     // Run chronological payments allocation migration
                     MigratePaymentsToSales();
@@ -1742,6 +1886,22 @@ namespace MeroDokan
             }
             catch (SqlException ex)
             {
+                // Distinguish actual connection/network/service failures from SQL query/schema errors
+                // SQL Server error codes:
+                // -1, -2: Timeout / Connection Timeout
+                // 2: Could not open a connection to SQL Server (Server not found)
+                // 53: Network path was not found
+                // 4060: Cannot open database requested by the login
+                // 17142: SQL Server service paused / stopped
+                // 18456: Login failed for user
+                bool isConnectionError = ex.Number == -1 || ex.Number == -2 || ex.Number == 2 || ex.Number == 53 || ex.Number == 4060 || ex.Number == 17142 || ex.Number == 18456 || ex.Class >= 20;
+
+                if (!isConnectionError)
+                {
+                    // Connection was successful, but a SQL statement/schema operation failed
+                    throw new Exception("Database schema or query initialization error:\n\n" + ex.Message, ex);
+                }
+
                 string localDbPath = FindSqlLocalDBPath();
                 if (string.IsNullOrEmpty(localDbPath))
                 {

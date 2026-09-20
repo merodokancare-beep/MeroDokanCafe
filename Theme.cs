@@ -18,10 +18,10 @@ namespace MeroDokan
         public static Color InputBg { get; set; } = Color.FromArgb(16, 21, 35);             // #101523 Dark input boxes
         public static Color InputBorder { get; set; } = Color.FromArgb(46, 58, 82);         // #2e3a52
         
-        // Vibrant Accents
-        public static Color Accent { get; set; } = Color.FromArgb(255, 107, 0);            // #ff6b00 Vibrant Electric Orange
-        public static Color AccentHover { get; set; } = Color.FromArgb(234, 88, 12);       // #ea580c Deep Orange
-        public static Color AccentLight { get; set; } = Color.FromArgb(45, 30, 20);        // Dark amber/orange tint
+        // Vibrant Accents (Emerald Mint Default)
+        public static Color Accent { get; set; } = Color.FromArgb(16, 185, 129);            // #10b981 Vibrant Emerald Mint Green
+        public static Color AccentHover { get; set; } = Color.FromArgb(5, 150, 105);       // #059669 Darker Emerald
+        public static Color AccentLight { get; set; } = Color.FromArgb(6, 78, 59);         // Deep Emerald tint
         
         // Text - High contrast white and slate
         public static Color TextLight { get; set; } = Color.FromArgb(255, 255, 255);       // #ffffff Pure White headers & titles
@@ -88,25 +88,343 @@ namespace MeroDokan
                 Math.Min(255, Math.Max(0, (int)blue)));
         }
 
+        public static string CurrentThemeName { get; set; } = "Emerald Mint";
+        public static bool IsDarkTheme { get; set; } = true;
+
         public static void ApplyThemePreset(string name)
         {
-            SidebarBg = Color.FromArgb(9, 13, 22);
-            SidebarHover = Color.FromArgb(24, 32, 50);
-            Primary = Color.FromArgb(14, 19, 31);
-            Secondary = Color.FromArgb(11, 15, 25);
-            CardBg = Color.FromArgb(22, 28, 45);
-            CardBorder = Color.FromArgb(35, 45, 66);
-            AlternateRow = Color.FromArgb(19, 25, 40);
-            InputBg = Color.FromArgb(16, 21, 35);
-            InputBorder = Color.FromArgb(46, 58, 82);
-            Accent = Color.FromArgb(255, 107, 0);
-            AccentHover = Color.FromArgb(234, 88, 12);
-            AccentLight = Color.FromArgb(45, 30, 20);
-            TextLight = Color.FromArgb(255, 255, 255);
-            TextWhite = Color.FromArgb(255, 255, 255);
-            TextDark = Color.FromArgb(241, 245, 249);
-            TextMuted = Color.FromArgb(148, 163, 184);
-            TextSidebar = Color.FromArgb(148, 163, 184);
+            if (string.IsNullOrWhiteSpace(name)) name = "Emerald Mint";
+            CurrentThemeName = name;
+
+            // Handle Custom Theme String (format: CUSTOM|#prim|#sec|#acc|isLight)
+            if (name.StartsWith("CUSTOM|"))
+            {
+                try
+                {
+                    string[] parts = name.Split('|');
+                    Color prim = ColorTranslator.FromHtml(parts[1]);
+                    Color sec = ColorTranslator.FromHtml(parts[2]);
+                    Color acc = ColorTranslator.FromHtml(parts[3]);
+                    bool isLight = parts.Length > 4 && parts[4] == "1";
+
+                    IsDarkTheme = !isLight;
+                    Primary = prim;
+                    Secondary = sec;
+                    Accent = acc;
+                    AccentHover = AdjustBrightness(acc, isLight ? -0.15f : 0.15f);
+                    AccentLight = AdjustBrightness(acc, isLight ? 0.65f : -0.65f);
+
+                    if (isLight)
+                    {
+                        SidebarBg = AdjustBrightness(prim, -0.2f);
+                        SidebarHover = AdjustBrightness(prim, -0.1f);
+                        CardBg = Color.White;
+                        CardBorder = AdjustBrightness(sec, -0.14f);
+                        AlternateRow = AdjustBrightness(sec, 0.05f);
+                        InputBg = Color.White;
+                        InputBorder = AdjustBrightness(sec, -0.22f);
+                        TextLight = Color.FromArgb(15, 23, 42);
+                        TextWhite = Color.White;
+                        TextDark = Color.FromArgb(51, 65, 85);
+                        TextMuted = Color.FromArgb(100, 116, 139);
+                        TextSidebar = Color.FromArgb(226, 232, 240);
+                    }
+                    else
+                    {
+                        SidebarBg = AdjustBrightness(prim, -0.25f);
+                        SidebarHover = AdjustBrightness(prim, 0.15f);
+                        CardBg = AdjustBrightness(sec, 0.15f);
+                        CardBorder = AdjustBrightness(sec, 0.35f);
+                        AlternateRow = AdjustBrightness(sec, 0.08f);
+                        InputBg = AdjustBrightness(sec, 0.08f);
+                        InputBorder = AdjustBrightness(sec, 0.45f);
+                        TextLight = Color.White;
+                        TextWhite = Color.White;
+                        TextDark = Color.FromArgb(241, 245, 249);
+                        TextMuted = Color.FromArgb(148, 163, 184);
+                        TextSidebar = Color.FromArgb(148, 163, 184);
+                    }
+                    return;
+                }
+                catch { }
+            }
+
+            switch (name.Trim())
+            {
+                case "Rose Gold":
+                    IsDarkTheme = true;
+                    SidebarBg = Color.FromArgb(18, 15, 20);
+                    SidebarHover = Color.FromArgb(38, 31, 43);
+                    Primary = Color.FromArgb(26, 20, 28);
+                    Secondary = Color.FromArgb(16, 13, 19);
+                    CardBg = Color.FromArgb(33, 26, 38);
+                    CardBorder = Color.FromArgb(64, 50, 72);
+                    AlternateRow = Color.FromArgb(26, 21, 32);
+                    InputBg = Color.FromArgb(23, 18, 27);
+                    InputBorder = Color.FromArgb(75, 58, 84);
+                    Accent = Color.FromArgb(230, 140, 130);
+                    AccentHover = Color.FromArgb(215, 120, 110);
+                    AccentLight = Color.FromArgb(55, 32, 38);
+                    TextLight = Color.White;
+                    TextWhite = Color.White;
+                    TextDark = Color.FromArgb(250, 238, 240);
+                    TextMuted = Color.FromArgb(180, 155, 165);
+                    TextSidebar = Color.FromArgb(180, 155, 165);
+                    break;
+
+                case "Emerald Mint":
+                    IsDarkTheme = true;
+                    SidebarBg = Color.FromArgb(6, 21, 16);
+                    SidebarHover = Color.FromArgb(13, 43, 32);
+                    Primary = Color.FromArgb(10, 30, 23);
+                    Secondary = Color.FromArgb(5, 18, 13);
+                    CardBg = Color.FromArgb(15, 42, 33);
+                    CardBorder = Color.FromArgb(27, 69, 54);
+                    AlternateRow = Color.FromArgb(11, 34, 26);
+                    InputBg = Color.FromArgb(11, 33, 25);
+                    InputBorder = Color.FromArgb(34, 87, 68);
+                    Accent = Color.FromArgb(16, 185, 129);
+                    AccentHover = Color.FromArgb(5, 150, 105);
+                    AccentLight = Color.FromArgb(12, 56, 41);
+                    TextLight = Color.White;
+                    TextWhite = Color.White;
+                    TextDark = Color.FromArgb(230, 251, 243);
+                    TextMuted = Color.FromArgb(131, 184, 164);
+                    TextSidebar = Color.FromArgb(131, 184, 164);
+                    break;
+
+                case "Deep Olive":
+                    IsDarkTheme = true;
+                    SidebarBg = Color.FromArgb(17, 20, 12);
+                    SidebarHover = Color.FromArgb(34, 40, 24);
+                    Primary = Color.FromArgb(24, 29, 17);
+                    Secondary = Color.FromArgb(14, 18, 10);
+                    CardBg = Color.FromArgb(32, 39, 23);
+                    CardBorder = Color.FromArgb(56, 68, 41);
+                    AlternateRow = Color.FromArgb(24, 30, 18);
+                    InputBg = Color.FromArgb(23, 30, 17);
+                    InputBorder = Color.FromArgb(70, 85, 52);
+                    Accent = Color.FromArgb(234, 179, 8);
+                    AccentHover = Color.FromArgb(202, 138, 4);
+                    AccentLight = Color.FromArgb(51, 43, 16);
+                    TextLight = Color.White;
+                    TextWhite = Color.White;
+                    TextDark = Color.FromArgb(247, 254, 231);
+                    TextMuted = Color.FromArgb(163, 177, 138);
+                    TextSidebar = Color.FromArgb(163, 177, 138);
+                    break;
+
+                case "Cyberpunk Purple":
+                    IsDarkTheme = true;
+                    SidebarBg = Color.FromArgb(15, 9, 27);
+                    SidebarHover = Color.FromArgb(35, 22, 62);
+                    Primary = Color.FromArgb(24, 14, 42);
+                    Secondary = Color.FromArgb(12, 7, 23);
+                    CardBg = Color.FromArgb(34, 21, 58);
+                    CardBorder = Color.FromArgb(65, 41, 110);
+                    AlternateRow = Color.FromArgb(26, 16, 46);
+                    InputBg = Color.FromArgb(25, 16, 43);
+                    InputBorder = Color.FromArgb(85, 54, 145);
+                    Accent = Color.FromArgb(217, 70, 239);
+                    AccentHover = Color.FromArgb(192, 38, 211);
+                    AccentLight = Color.FromArgb(61, 20, 69);
+                    TextLight = Color.White;
+                    TextWhite = Color.White;
+                    TextDark = Color.FromArgb(253, 244, 255);
+                    TextMuted = Color.FromArgb(181, 158, 208);
+                    TextSidebar = Color.FromArgb(181, 158, 208);
+                    break;
+
+                case "Midnight Blue":
+                    IsDarkTheme = true;
+                    SidebarBg = Color.FromArgb(8, 14, 28);
+                    SidebarHover = Color.FromArgb(19, 33, 62);
+                    Primary = Color.FromArgb(13, 22, 45);
+                    Secondary = Color.FromArgb(6, 10, 22);
+                    CardBg = Color.FromArgb(20, 33, 66);
+                    CardBorder = Color.FromArgb(38, 60, 118);
+                    AlternateRow = Color.FromArgb(15, 26, 52);
+                    InputBg = Color.FromArgb(14, 24, 49);
+                    InputBorder = Color.FromArgb(48, 77, 148);
+                    Accent = Color.FromArgb(56, 189, 248);
+                    AccentHover = Color.FromArgb(14, 165, 233);
+                    AccentLight = Color.FromArgb(14, 48, 79);
+                    TextLight = Color.White;
+                    TextWhite = Color.White;
+                    TextDark = Color.FromArgb(240, 249, 255);
+                    TextMuted = Color.FromArgb(140, 160, 186);
+                    TextSidebar = Color.FromArgb(140, 160, 186);
+                    break;
+
+                case "Sunset Crimson":
+                    IsDarkTheme = true;
+                    SidebarBg = Color.FromArgb(22, 8, 10);
+                    SidebarHover = Color.FromArgb(48, 19, 24);
+                    Primary = Color.FromArgb(32, 13, 16);
+                    Secondary = Color.FromArgb(17, 5, 7);
+                    CardBg = Color.FromArgb(45, 18, 22);
+                    CardBorder = Color.FromArgb(82, 33, 41);
+                    AlternateRow = Color.FromArgb(34, 14, 17);
+                    InputBg = Color.FromArgb(33, 14, 17);
+                    InputBorder = Color.FromArgb(105, 42, 53);
+                    Accent = Color.FromArgb(244, 63, 94);
+                    AccentHover = Color.FromArgb(225, 29, 72);
+                    AccentLight = Color.FromArgb(71, 20, 30);
+                    TextLight = Color.White;
+                    TextWhite = Color.White;
+                    TextDark = Color.FromArgb(255, 241, 242);
+                    TextMuted = Color.FromArgb(191, 161, 165);
+                    TextSidebar = Color.FromArgb(191, 161, 165);
+                    break;
+
+                case "Ocean Breeze":
+                    IsDarkTheme = true;
+                    SidebarBg = Color.FromArgb(6, 19, 24);
+                    SidebarHover = Color.FromArgb(14, 39, 50);
+                    Primary = Color.FromArgb(11, 31, 39);
+                    Secondary = Color.FromArgb(5, 15, 20);
+                    CardBg = Color.FromArgb(17, 43, 54);
+                    CardBorder = Color.FromArgb(30, 75, 94);
+                    AlternateRow = Color.FromArgb(11, 31, 39);
+                    InputBg = Color.FromArgb(12, 33, 42);
+                    InputBorder = Color.FromArgb(40, 98, 122);
+                    Accent = Color.FromArgb(6, 182, 212);
+                    AccentHover = Color.FromArgb(8, 145, 178);
+                    AccentLight = Color.FromArgb(11, 58, 68);
+                    TextLight = Color.White;
+                    TextWhite = Color.White;
+                    TextDark = Color.FromArgb(236, 254, 255);
+                    TextMuted = Color.FromArgb(125, 164, 179);
+                    TextSidebar = Color.FromArgb(125, 164, 179);
+                    break;
+
+                case "Forest Moss":
+                    IsDarkTheme = true;
+                    SidebarBg = Color.FromArgb(10, 20, 9);
+                    SidebarHover = Color.FromArgb(22, 43, 20);
+                    Primary = Color.FromArgb(16, 32, 15);
+                    Secondary = Color.FromArgb(7, 15, 6);
+                    CardBg = Color.FromArgb(24, 46, 22);
+                    CardBorder = Color.FromArgb(42, 80, 39);
+                    AlternateRow = Color.FromArgb(17, 35, 16);
+                    InputBg = Color.FromArgb(17, 34, 16);
+                    InputBorder = Color.FromArgb(56, 107, 51);
+                    Accent = Color.FromArgb(132, 204, 22);
+                    AccentHover = Color.FromArgb(101, 163, 13);
+                    AccentLight = Color.FromArgb(37, 61, 20);
+                    TextLight = Color.White;
+                    TextWhite = Color.White;
+                    TextDark = Color.FromArgb(247, 254, 231);
+                    TextMuted = Color.FromArgb(147, 175, 138);
+                    TextSidebar = Color.FromArgb(147, 175, 138);
+                    break;
+
+                case "Pure Alabaster":
+                    IsDarkTheme = false;
+                    SidebarBg = Color.FromArgb(30, 41, 59);
+                    SidebarHover = Color.FromArgb(51, 65, 85);
+                    Primary = Color.FromArgb(248, 250, 252);
+                    Secondary = Color.FromArgb(241, 245, 249);
+                    CardBg = Color.White;
+                    CardBorder = Color.FromArgb(226, 232, 240);
+                    AlternateRow = Color.FromArgb(248, 250, 252);
+                    InputBg = Color.White;
+                    InputBorder = Color.FromArgb(203, 213, 225);
+                    Accent = Color.FromArgb(37, 99, 235);
+                    AccentHover = Color.FromArgb(29, 78, 216);
+                    AccentLight = Color.FromArgb(219, 234, 254);
+                    TextLight = Color.FromArgb(15, 23, 42);
+                    TextWhite = Color.White;
+                    TextDark = Color.FromArgb(51, 65, 85);
+                    TextMuted = Color.FromArgb(100, 116, 139);
+                    TextSidebar = Color.FromArgb(226, 232, 240);
+                    break;
+
+                case "Snowy Mint":
+                    IsDarkTheme = false;
+                    SidebarBg = Color.FromArgb(19, 42, 34);
+                    SidebarHover = Color.FromArgb(30, 63, 52);
+                    Primary = Color.FromArgb(244, 250, 247);
+                    Secondary = Color.FromArgb(234, 244, 239);
+                    CardBg = Color.White;
+                    CardBorder = Color.FromArgb(209, 231, 221);
+                    AlternateRow = Color.FromArgb(244, 250, 247);
+                    InputBg = Color.White;
+                    InputBorder = Color.FromArgb(186, 219, 204);
+                    Accent = Color.FromArgb(5, 150, 105);
+                    AccentHover = Color.FromArgb(4, 120, 87);
+                    AccentLight = Color.FromArgb(209, 250, 229);
+                    TextLight = Color.FromArgb(6, 78, 59);
+                    TextWhite = Color.White;
+                    TextDark = Color.FromArgb(15, 81, 50);
+                    TextMuted = Color.FromArgb(88, 129, 87);
+                    TextSidebar = Color.FromArgb(232, 245, 233);
+                    break;
+
+                case "Nordic Light":
+                    IsDarkTheme = false;
+                    SidebarBg = Color.FromArgb(24, 34, 47);
+                    SidebarHover = Color.FromArgb(38, 53, 72);
+                    Primary = Color.FromArgb(245, 247, 250);
+                    Secondary = Color.FromArgb(235, 240, 245);
+                    CardBg = Color.White;
+                    CardBorder = Color.FromArgb(213, 223, 233);
+                    AlternateRow = Color.FromArgb(245, 247, 250);
+                    InputBg = Color.White;
+                    InputBorder = Color.FromArgb(186, 202, 214);
+                    Accent = Color.FromArgb(2, 132, 199);
+                    AccentHover = Color.FromArgb(3, 105, 161);
+                    AccentLight = Color.FromArgb(224, 242, 254);
+                    TextLight = Color.FromArgb(12, 26, 41);
+                    TextWhite = Color.White;
+                    TextDark = Color.FromArgb(30, 41, 59);
+                    TextMuted = Color.FromArgb(100, 116, 139);
+                    TextSidebar = Color.FromArgb(224, 242, 254);
+                    break;
+
+                case "Soft Peach":
+                    IsDarkTheme = false;
+                    SidebarBg = Color.FromArgb(42, 26, 23);
+                    SidebarHover = Color.FromArgb(61, 38, 34);
+                    Primary = Color.FromArgb(255, 247, 242);
+                    Secondary = Color.FromArgb(253, 240, 233);
+                    CardBg = Color.White;
+                    CardBorder = Color.FromArgb(245, 221, 209);
+                    AlternateRow = Color.FromArgb(255, 247, 242);
+                    InputBg = Color.White;
+                    InputBorder = Color.FromArgb(230, 194, 178);
+                    Accent = Color.FromArgb(224, 86, 56);
+                    AccentHover = Color.FromArgb(200, 67, 38);
+                    AccentLight = Color.FromArgb(255, 229, 220);
+                    TextLight = Color.FromArgb(45, 24, 16);
+                    TextWhite = Color.White;
+                    TextDark = Color.FromArgb(67, 40, 28);
+                    TextMuted = Color.FromArgb(127, 85, 57);
+                    TextSidebar = Color.FromArgb(255, 232, 214);
+                    break;
+
+                case "Dark Slate":
+                default:
+                    IsDarkTheme = true;
+                    SidebarBg = Color.FromArgb(9, 13, 22);
+                    SidebarHover = Color.FromArgb(24, 32, 50);
+                    Primary = Color.FromArgb(14, 19, 31);
+                    Secondary = Color.FromArgb(11, 15, 25);
+                    CardBg = Color.FromArgb(22, 28, 45);
+                    CardBorder = Color.FromArgb(35, 45, 66);
+                    AlternateRow = Color.FromArgb(19, 25, 40);
+                    InputBg = Color.FromArgb(16, 21, 35);
+                    InputBorder = Color.FromArgb(46, 58, 82);
+                    Accent = Color.FromArgb(255, 107, 0);
+                    AccentHover = Color.FromArgb(234, 88, 12);
+                    AccentLight = Color.FromArgb(45, 30, 20);
+                    TextLight = Color.FromArgb(255, 255, 255);
+                    TextWhite = Color.FromArgb(255, 255, 255);
+                    TextDark = Color.FromArgb(241, 245, 249);
+                    TextMuted = Color.FromArgb(148, 163, 184);
+                    TextSidebar = Color.FromArgb(148, 163, 184);
+                    break;
+            }
         }
 
         public static string FontSizePreset { get; set; } = "Medium";
@@ -138,29 +456,29 @@ namespace MeroDokan
             {
                 if (container is Label lbl)
                 {
-                    if (lbl.Font != null)
+                    if (lbl.Tag == null && lbl.Font != null)
                     {
-                        if (lbl.Font.Size >= 13F)
-                            lbl.Font = HeaderFont;
-                        else if (lbl.Font.Size >= 10.5F)
-                            lbl.Font = SubHeaderFont;
-                        else if (lbl.Font.Bold)
-                            lbl.Font = BoldFont;
-                        else
-                            lbl.Font = MainFont;
+                        if (lbl.Font.Size >= 13F) lbl.Tag = "Header";
+                        else if (lbl.Font.Size >= 10.5F) lbl.Tag = "SubHeader";
+                        else if (lbl.Font.Size <= 8.5F) lbl.Tag = "Small";
+                        else if (lbl.Font.Bold) lbl.Tag = "Bold";
+                        else lbl.Tag = "Main";
                     }
+
+                    string role = lbl.Tag?.ToString();
+                    if (role == "Header") lbl.Font = HeaderFont;
+                    else if (role == "SubHeader") lbl.Font = SubHeaderFont;
+                    else if (role == "Small") lbl.Font = SmallFont;
+                    else if (role == "Bold") lbl.Font = BoldFont;
+                    else lbl.Font = MainFont;
                 }
                 else if (container is TextBox txt)
                 {
                     txt.Font = MainFont;
-                    txt.BackColor = InputBg;
-                    txt.ForeColor = TextLight;
                 }
                 else if (container is NumericUpDown num)
                 {
                     num.Font = MainFont;
-                    num.BackColor = InputBg;
-                    num.ForeColor = TextLight;
                 }
                 else if (container is Button btn)
                 {
@@ -172,8 +490,6 @@ namespace MeroDokan
                 else if (container is ComboBox cb)
                 {
                     cb.Font = MainFont;
-                    cb.BackColor = InputBg;
-                    cb.ForeColor = TextLight;
                 }
                 else if (container is DataGridView dgv)
                 {
@@ -188,6 +504,59 @@ namespace MeroDokan
             foreach (Control child in container.Controls)
             {
                 UpdateFontRecursively(child);
+            }
+        }
+
+        public static void ApplyThemeRecursively(Control container)
+        {
+            if (container == null) return;
+
+            try
+            {
+                if (container is TextBox txt)
+                {
+                    txt.BackColor = InputBg;
+                    txt.ForeColor = TextLight;
+                }
+                else if (container is NumericUpDown num)
+                {
+                    num.BackColor = InputBg;
+                    num.ForeColor = TextLight;
+                }
+                else if (container is ComboBox cb)
+                {
+                    cb.BackColor = InputBg;
+                    cb.ForeColor = TextLight;
+                }
+                else if (container is Label lbl)
+                {
+                    // Preserve status/badge highlights
+                    if (lbl.ForeColor != Success && lbl.ForeColor != Danger && lbl.ForeColor != Warning && lbl.ForeColor != Info && lbl.ForeColor != Color.White)
+                    {
+                        string role = lbl.Tag?.ToString();
+                        if (role == "Small" || (lbl.Font != null && lbl.Font.Size <= 8.5F))
+                            lbl.ForeColor = TextMuted;
+                        else
+                            lbl.ForeColor = TextLight;
+                    }
+                }
+                else if (container is DataGridView dgv)
+                {
+                    dgv.BackgroundColor = CardBg;
+                    dgv.GridColor = CardBorder;
+                    dgv.ColumnHeadersDefaultCellStyle.BackColor = Primary;
+                    dgv.ColumnHeadersDefaultCellStyle.ForeColor = TextLight;
+                    dgv.DefaultCellStyle.BackColor = CardBg;
+                    dgv.DefaultCellStyle.ForeColor = TextLight;
+                    dgv.AlternatingRowsDefaultCellStyle.BackColor = AlternateRow;
+                    dgv.AlternatingRowsDefaultCellStyle.ForeColor = TextLight;
+                }
+            }
+            catch { }
+
+            foreach (Control child in container.Controls)
+            {
+                ApplyThemeRecursively(child);
             }
         }
 

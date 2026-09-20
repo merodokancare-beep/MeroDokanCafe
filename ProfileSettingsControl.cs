@@ -24,6 +24,8 @@ namespace MeroDokan
         private ComboBox comboDefaultGSTRate;
         private ComboBox comboThemePreset;
         private ComboBox comboFontSize;
+        private Panel leftPanel;
+        private Panel rightPanel;
         
         private TextBox txtUPIId;
         private TextBox txtUPIName;
@@ -78,7 +80,7 @@ namespace MeroDokan
             // ==========================================
             // LEFT COLUMN: Cafe Details
             // ==========================================
-            Panel leftPanel = Theme.CreateCard(440, 420);
+            leftPanel = Theme.CreateCard(440, 420);
             leftPanel.Dock = DockStyle.Fill;
             leftPanel.Margin = new Padding(0, 0, 10, 0);
             splitLayout.Controls.Add(leftPanel, 0, 0);
@@ -228,7 +230,7 @@ namespace MeroDokan
             // ==========================================
             // RIGHT COLUMN: Theme & Image Branding
             // ==========================================
-            Panel rightPanel = Theme.CreateCard(440, 420);
+            rightPanel = Theme.CreateCard(440, 420);
             rightPanel.Dock = DockStyle.Fill;
             rightPanel.Margin = new Padding(10, 0, 0, 0);
             splitLayout.Controls.Add(rightPanel, 1, 0);
@@ -280,6 +282,7 @@ namespace MeroDokan
             comboFontSize.Font = Theme.MainFont;
             comboFontSize.Items.AddRange(new string[] { "Small", "Medium", "Large" });
             comboFontSize.SelectedIndex = 1;
+            comboFontSize.SelectedIndexChanged += ComboFontSize_SelectedIndexChanged;
             rightPanel.Controls.Add(comboFontSize);
 
             // 2. GST & TAX BILLING PREFERENCES
@@ -533,17 +536,16 @@ namespace MeroDokan
                                 chkAutoShowQR.Checked = (rdr["AutoShowQROnUPI"] != DBNull.Value) ? Convert.ToBoolean(rdr["AutoShowQROnUPI"]) : true;
                                 chkPrintQROnReceipt.Checked = (rdr["PrintQROnReceipt"] != DBNull.Value) ? Convert.ToBoolean(rdr["PrintQROnReceipt"]) : true;
 
+                                isHandlingThemeChange = true;
                                 string preset = rdr["ThemePreset"]?.ToString() ?? "Dark Slate";
                                 if (preset.StartsWith("CUSTOM|"))
                                 {
                                     customThemeString = preset;
-                                    isHandlingThemeChange = true;
                                     if (!comboThemePreset.Items.Contains("Custom Theme"))
                                     {
                                         comboThemePreset.Items.Add("Custom Theme");
                                     }
                                     comboThemePreset.SelectedItem = "Custom Theme";
-                                    isHandlingThemeChange = false;
                                 }
                                 else
                                 {
@@ -554,6 +556,7 @@ namespace MeroDokan
                                 string fontSize = rdr["FontSizePreset"]?.ToString() ?? "Medium";
                                 int fontIdx = comboFontSize.Items.IndexOf(fontSize);
                                 comboFontSize.SelectedIndex = fontIdx >= 0 ? fontIdx : 1;
+                                isHandlingThemeChange = false;
 
                                 // Load Profile Pic
                                 string profPic = rdr["ProfilePicPath"]?.ToString();
@@ -753,6 +756,7 @@ namespace MeroDokan
                 // Apply dynamic theme & font immediately at runtime!
                 Theme.ApplyThemePreset(themePreset);
                 Theme.ApplyFontSizePreset(fontSizePreset);
+                RefreshTheme();
 
                 MessageBox.Show("Profile and application branding configurations saved successfully!", "Settings Updated", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
@@ -805,6 +809,8 @@ namespace MeroDokan
                         }
                         comboThemePreset.SelectedItem = "Custom Theme";
                         isHandlingThemeChange = false;
+
+                        ApplySelectedThemeLive();
                     }
                     else
                     {
@@ -814,6 +820,54 @@ namespace MeroDokan
                     }
                 }
             }
+            else
+            {
+                ApplySelectedThemeLive();
+            }
+        }
+
+        private void ComboFontSize_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (isHandlingThemeChange) return;
+            string fontSize = comboFontSize.SelectedItem?.ToString() ?? "Medium";
+            Theme.ApplyFontSizePreset(fontSize);
+            RefreshTheme();
+            OnSettingsSaved?.Invoke();
+        }
+
+        private void ApplySelectedThemeLive()
+        {
+            string themePreset = comboThemePreset.SelectedItem?.ToString() ?? "Dark Slate";
+            if (themePreset == "Custom Theme" && !string.IsNullOrEmpty(customThemeString))
+            {
+                themePreset = customThemeString;
+            }
+            Theme.ApplyThemePreset(themePreset);
+            RefreshTheme();
+            OnSettingsSaved?.Invoke();
+        }
+
+        public void RefreshTheme()
+        {
+            this.BackColor = Theme.Secondary;
+            if (leftPanel != null)
+            {
+                leftPanel.BackColor = Theme.CardBg;
+                leftPanel.Invalidate();
+            }
+            if (rightPanel != null)
+            {
+                rightPanel.BackColor = Theme.CardBg;
+                rightPanel.Invalidate();
+            }
+
+            Theme.ApplyThemeRecursively(this);
+            Theme.UpdateFontRecursively(this);
+
+            if (btnSave != null) Theme.StyleSuccessButton(btnSave);
+            if (btnBrowseBackupPath != null) Theme.StyleSecondaryButton(btnBrowseBackupPath);
+            if (btnUploadProfilePic != null) Theme.StyleSecondaryButton(btnUploadProfilePic);
+            if (btnUploadLogo != null) Theme.StyleSecondaryButton(btnUploadLogo);
         }
 
         private void LoadProfileThemeSelection()

@@ -38,6 +38,7 @@ namespace MeroDokan
         {
             this.Size = new Size(1000, 680);
             this.AutoScroll = true;
+            this.AutoScrollMinSize = new Size(950, 520);
             this.BackColor = Theme.Secondary;
 
             // Header
@@ -55,20 +56,21 @@ namespace MeroDokan
             Theme.StyleLabel(lblSubtitle, Theme.TextDark, Theme.MainFont);
             this.Controls.Add(lblSubtitle);
 
-            // Summary Badges Card
-            Panel statCard = Theme.CreateCard(340, 50);
-            statCard.Location = new Point(20, 75);
+            // Summary Badges Card (Header Right)
+            Panel statCard = Theme.CreateCard(340, 44);
+            statCard.Location = new Point(620, 12);
+            statCard.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             
             lblTotalStaff = new Label();
             lblTotalStaff.Text = "🧑‍🍳 Total Staff: 0";
-            lblTotalStaff.Location = new Point(15, 15);
+            lblTotalStaff.Location = new Point(15, 12);
             lblTotalStaff.AutoSize = true;
             Theme.StyleLabel(lblTotalStaff, Theme.Accent, Theme.BoldFont);
             statCard.Controls.Add(lblTotalStaff);
 
             lblActiveStaff = new Label();
             lblActiveStaff.Text = "🟢 Active: 0";
-            lblActiveStaff.Location = new Point(180, 15);
+            lblActiveStaff.Location = new Point(180, 12);
             lblActiveStaff.AutoSize = true;
             Theme.StyleLabel(lblActiveStaff, Theme.Success, Theme.BoldFont);
             statCard.Controls.Add(lblActiveStaff);
@@ -76,18 +78,20 @@ namespace MeroDokan
             this.Controls.Add(statCard);
 
             // LEFT PANEL: Form Entry Card
-            Panel entryPanel = Theme.CreateCard(340, 515);
-            entryPanel.Location = new Point(20, 135);
-            entryPanel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Bottom;
+            Panel entryPanel = Theme.CreateCard(340, 365);
+            entryPanel.Location = new Point(20, 75);
+            entryPanel.Anchor = AnchorStyles.Top | AnchorStyles.Left;
+            entryPanel.AutoScroll = true;
 
             Label lblCardTitle = new Label();
             lblCardTitle.Text = "Staff / Steward Profile";
             lblCardTitle.Location = new Point(15, 12);
+            lblCardTitle.AutoSize = true;
             Theme.StyleLabel(lblCardTitle, Theme.TextLight, Theme.SubHeaderFont);
             entryPanel.Controls.Add(lblCardTitle);
 
-            int startY = 45;
-            int gap = 52;
+            int startY = 38;
+            int gap = 46;
 
             // Stylist Full Name
             Label lblName = new Label();
@@ -98,8 +102,8 @@ namespace MeroDokan
             entryPanel.Controls.Add(lblName);
 
             txtName = new TextBox();
-            txtName.Size = new Size(310, 28);
-            txtName.Location = new Point(15, startY + 18);
+            txtName.Size = new Size(310, 26);
+            txtName.Location = new Point(15, startY + 17);
             Theme.StyleTextBox(txtName);
             entryPanel.Controls.Add(txtName);
 
@@ -112,8 +116,8 @@ namespace MeroDokan
             entryPanel.Controls.Add(lblPhone);
 
             txtPhone = new TextBox();
-            txtPhone.Size = new Size(310, 28);
-            txtPhone.Location = new Point(15, startY + gap + 18);
+            txtPhone.Size = new Size(310, 26);
+            txtPhone.Location = new Point(15, startY + gap + 17);
             Theme.StyleTextBox(txtPhone);
             entryPanel.Controls.Add(txtPhone);
 
@@ -126,8 +130,8 @@ namespace MeroDokan
             entryPanel.Controls.Add(lblEmail);
 
             txtEmail = new TextBox();
-            txtEmail.Size = new Size(310, 28);
-            txtEmail.Location = new Point(15, startY + gap * 2 + 18);
+            txtEmail.Size = new Size(310, 26);
+            txtEmail.Location = new Point(15, startY + gap * 2 + 17);
             Theme.StyleTextBox(txtEmail);
             entryPanel.Controls.Add(txtEmail);
 
@@ -140,8 +144,8 @@ namespace MeroDokan
             entryPanel.Controls.Add(lblRole);
 
             comboRole = new ComboBox();
-            comboRole.Size = new Size(310, 28);
-            comboRole.Location = new Point(15, startY + gap * 3 + 18);
+            comboRole.Size = new Size(310, 26);
+            comboRole.Location = new Point(15, startY + gap * 3 + 17);
             comboRole.DropDownStyle = ComboBoxStyle.DropDownList;
             Theme.StyleComboBox(comboRole);
             comboRole.SelectedIndexChanged += (s, e) => {
@@ -161,8 +165,8 @@ namespace MeroDokan
             entryPanel.Controls.Add(lblComm);
 
             numCommission = new NumericUpDown();
-            numCommission.Size = new Size(310, 28);
-            numCommission.Location = new Point(15, startY + gap * 4 + 18);
+            numCommission.Size = new Size(310, 26);
+            numCommission.Location = new Point(15, startY + gap * 4 + 17);
             numCommission.Minimum = 0;
             numCommission.Maximum = 100;
             numCommission.DecimalPlaces = 2;
@@ -173,7 +177,7 @@ namespace MeroDokan
             // Active Status
             chkIsActive = new CheckBox();
             chkIsActive.Text = "Currently Active Staff Member";
-            chkIsActive.Location = new Point(15, startY + gap * 5 + 15);
+            chkIsActive.Location = new Point(15, startY + gap * 5 + 6);
             chkIsActive.Size = new Size(310, 24);
             chkIsActive.Checked = true;
             chkIsActive.ForeColor = Theme.TextLight;
@@ -182,17 +186,17 @@ namespace MeroDokan
 
             // Action Buttons
             btnSave = new Button();
-            btnSave.Text = "💾 Save Staff / Steward";
-            btnSave.Size = new Size(150, 38);
-            btnSave.Location = new Point(15, startY + gap * 6);
+            btnSave.Text = "💾 Save Staff";
+            btnSave.Size = new Size(150, 36);
+            btnSave.Location = new Point(15, startY + gap * 5 + 34);
             Theme.StyleSuccessButton(btnSave);
             btnSave.Click += BtnSave_Click;
             entryPanel.Controls.Add(btnSave);
 
             btnClear = new Button();
             btnClear.Text = "🔄 Clear / New";
-            btnClear.Size = new Size(150, 38);
-            btnClear.Location = new Point(175, startY + gap * 6);
+            btnClear.Size = new Size(150, 36);
+            btnClear.Location = new Point(175, startY + gap * 5 + 34);
             Theme.StylePrimaryButton(btnClear);
             btnClear.Click += (s, e) => ResetForm();
             entryPanel.Controls.Add(btnClear);
@@ -417,7 +421,7 @@ namespace MeroDokan
                 numCommission.Value = Convert.ToDecimal(row.Cells["Incentive %"].Value ?? 0);
                 chkIsActive.Checked = (row.Cells["Status"].Value?.ToString() ?? "") == "Active";
 
-                btnSave.Text = "✏️ Update Staff / Steward";
+                btnSave.Text = "✏️ Update Staff";
             }
         }
 
@@ -530,7 +534,7 @@ namespace MeroDokan
             if (comboRole.Items.Count > 0) comboRole.SelectedIndex = 0;
             numCommission.Value = 0;
             chkIsActive.Checked = true;
-            btnSave.Text = "💾 Save Staff / Steward";
+            btnSave.Text = "💾 Save Staff";
             txtName.Focus();
         }
     }

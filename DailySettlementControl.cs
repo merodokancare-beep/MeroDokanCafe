@@ -24,6 +24,7 @@ namespace MeroDokan
         private TextBox txtRemarks;
         private Label lblStatusMessage;
         private Button btnSaveSettlement;
+        private Label lblVoidToday;
 
         // History
         private DataGridView gridHistory;
@@ -46,6 +47,7 @@ namespace MeroDokan
         private decimal totalCardPayment = 0;
         private decimal totalQRPayment = 0;
         private decimal totalOnlinePayment = 0;
+        private decimal voidAmountToday = 0;
 
         // Active running orders check
         private int activeDiningCount = 0;
@@ -70,6 +72,7 @@ namespace MeroDokan
             // Page Header
             Label lblHeader = new Label();
             lblHeader.Text = "Daily Cash Register & Settlement";
+            lblHeader.UseMnemonic = false;
             lblHeader.Location = new Point(20, 15);
             lblHeader.AutoSize = true;
             Theme.StyleLabel(lblHeader, Theme.TextLight, Theme.HeaderFont);
@@ -109,12 +112,12 @@ namespace MeroDokan
 
             // Unified Card for Settlement Fields
             Panel mainPanel = new Panel();
-            mainPanel.Size = new Size(910, 290);
+            mainPanel.Size = new Size(910, 310);
             mainPanel.Location = new Point(20, 115);
             mainPanel.BackColor = Color.Transparent;
             this.Controls.Add(mainPanel);
 
-            Panel cardMain = Theme.CreateCard(910, 290);
+            Panel cardMain = Theme.CreateCard(910, 310);
             cardMain.Dock = DockStyle.Fill;
             cardMain.BackColor = Color.FromArgb(17, 24, 39);
             mainPanel.Controls.Add(cardMain);
@@ -122,6 +125,7 @@ namespace MeroDokan
             // COLUMN 1: Daily Figures & Dues
             Label lblCol1Header = new Label();
             lblCol1Header.Text = "DAILY REVENUE & CASH SUMMARY";
+            lblCol1Header.UseMnemonic = false;
             lblCol1Header.Location = new Point(20, 15);
             lblCol1Header.AutoSize = true;
             Theme.StyleLabel(lblCol1Header, Theme.TextDark, new Font("Segoe UI Semibold", 8F, FontStyle.Bold));
@@ -226,17 +230,32 @@ namespace MeroDokan
             Theme.StyleLabel(lblTotalReturn, Theme.Danger, Theme.BoldFont);
             cardMain.Controls.Add(lblTotalReturn);
 
+            // 6b. Void / Cancelled KOTs
+            Label lblVoidTitle = new Label();
+            lblVoidTitle.Text = "Void / Cancelled:";
+            lblVoidTitle.Location = new Point(20, 220);
+            lblVoidTitle.AutoSize = true;
+            Theme.StyleLabel(lblVoidTitle, Theme.TextLight, Theme.MainFont);
+            cardMain.Controls.Add(lblVoidTitle);
+
+            lblVoidToday = new Label();
+            lblVoidToday.Text = "Rs. 0.00";
+            lblVoidToday.Location = new Point(280, 220);
+            lblVoidToday.AutoSize = true;
+            Theme.StyleLabel(lblVoidToday, Color.FromArgb(248, 113, 113), Theme.BoldFont);
+            cardMain.Controls.Add(lblVoidToday);
+
             // 7. Total Cash in Drawer
             Label lblExpectedTitle = new Label();
             lblExpectedTitle.Text = "Total Cash in Drawer:";
-            lblExpectedTitle.Location = new Point(20, 226);
+            lblExpectedTitle.Location = new Point(20, 252);
             lblExpectedTitle.AutoSize = true;
             Theme.StyleLabel(lblExpectedTitle, Theme.TextLight, Theme.BoldFont);
             cardMain.Controls.Add(lblExpectedTitle);
 
             lblExpectedCash = new Label();
             lblExpectedCash.Text = "Rs. 0.00";
-            lblExpectedCash.Location = new Point(280, 226);
+            lblExpectedCash.Location = new Point(280, 252);
             lblExpectedCash.AutoSize = true;
             lblExpectedCash.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
             Theme.StyleLabel(lblExpectedCash, Theme.Success, lblExpectedCash.Font);
@@ -245,7 +264,7 @@ namespace MeroDokan
 
             // Middle vertical separator
             Panel sepCol = new Panel();
-            sepCol.Size = new Size(1, 245);
+            sepCol.Size = new Size(1, 265);
             sepCol.Location = new Point(440, 20);
             sepCol.BackColor = Theme.AlternateRow;
             cardMain.Controls.Add(sepCol);
@@ -301,6 +320,7 @@ namespace MeroDokan
             // Save Settlement Button
             btnSaveSettlement = new Button();
             btnSaveSettlement.Text = "🔒 Save & Close Register";
+            btnSaveSettlement.UseMnemonic = false;
             btnSaveSettlement.Size = new Size(340, 42);
             btnSaveSettlement.Location = new Point(470, 210);
             Theme.StyleSuccessButton(btnSaveSettlement);
@@ -311,13 +331,13 @@ namespace MeroDokan
             // BOTTOM PANEL: Historical Log
             Label lblHistoryHeader = new Label();
             lblHistoryHeader.Text = "Historical Reconciliation Log Book";
-            lblHistoryHeader.Location = new Point(20, 415);
+            lblHistoryHeader.Location = new Point(20, 435);
             lblHistoryHeader.AutoSize = true;
             Theme.StyleLabel(lblHistoryHeader, Theme.TextLight, Theme.SubHeaderFont);
             this.Controls.Add(lblHistoryHeader);
 
             gridHistory = new DataGridView();
-            gridHistory.Location = new Point(20, 450);
+            gridHistory.Location = new Point(20, 468);
             gridHistory.Size = new Size(910, 185);
             gridHistory.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             Theme.StyleGrid(gridHistory);
@@ -482,6 +502,20 @@ namespace MeroDokan
                         }
                     }
 
+                    // 6. Void / Cancelled KOTs Today
+                    voidAmountToday = 0;
+                    string voidSql = @"
+                        SELECT ISNULL(SUM(kd.Amount), 0)
+                        FROM KOTDetails kd
+                        INNER JOIN KOTMaster k ON kd.KOTId = k.Id
+                        WHERE (kd.IsVoided = 1 OR k.Status = 'Voided' OR k.IsVoided = 1)
+                          AND CAST(ISNULL(kd.VoidedAt, ISNULL(k.VoidedAt, k.CreatedAt)) AS DATE) = @selectDate";
+                    using (SqlCommand cmd = new SqlCommand(voidSql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@selectDate", selectDate);
+                        voidAmountToday = Convert.ToDecimal(cmd.ExecuteScalar());
+                    }
+
                     // 7. Check Active / Running Orders (Dining, Takeaway, Delivery, Waiting)
                     string activeCheckSql = @"
                         SELECT 
@@ -520,6 +554,7 @@ namespace MeroDokan
                 lblCardPayment.Text = $"Rs. {totalCardPayment:N2}";
                 lblQRPayment.Text = $"Rs. {totalQRPayment:N2}";
                 lblTotalReturn.Text = $"Rs. {totalReturns:N2}";
+                if (lblVoidToday != null) lblVoidToday.Text = $"Rs. {voidAmountToday:N2}";
 
                 UpdateCalculations();
             }
@@ -671,8 +706,8 @@ namespace MeroDokan
 
                     // Save
                     string query = @"
-                        INSERT INTO DailySettlements (SettlementDate, OpeningCash, CashSales, DueCollections, CardQRSales, CardSales, QRSales, DuesCreated, ExpectedCash, ActualCash, Variance, SettlementBy, Remarks, Refunds)
-                        VALUES (@date, @opening, @sales, @collections, @cardQRSales, @cardSales, @qrSales, @dues, @expected, @actual, @variance, @user, @remarks, @refunds)";
+                        INSERT INTO DailySettlements (SettlementDate, OpeningCash, CashSales, DueCollections, CardQRSales, CardSales, QRSales, DuesCreated, ExpectedCash, ActualCash, Variance, SettlementBy, Remarks, Refunds, VoidAmount)
+                        VALUES (@date, @opening, @sales, @collections, @cardQRSales, @cardSales, @qrSales, @dues, @expected, @actual, @variance, @user, @remarks, @refunds, @voidAmount)";
                     
                     using (SqlCommand cmd = new SqlCommand(query, conn))
                     {
@@ -690,6 +725,7 @@ namespace MeroDokan
                         cmd.Parameters.AddWithValue("@user", Session.UserId);
                         cmd.Parameters.AddWithValue("@remarks", remarks);
                         cmd.Parameters.AddWithValue("@refunds", cashRefunds);
+                        cmd.Parameters.AddWithValue("@voidAmount", voidAmountToday);
                         
                         cmd.ExecuteNonQuery();
                     }
@@ -719,6 +755,13 @@ namespace MeroDokan
                                ISNULL(s.CardSales, 0.00) as [Card Payment],
                                ISNULL(s.QRSales, ISNULL(s.CardQRSales, 0.00) - ISNULL(s.CardSales, 0.00)) as [QR / UPI Payment],
                                s.Refunds as [Cash Refunds],
+                               ISNULL(s.VoidAmount, ISNULL((
+                                   SELECT SUM(kd.Amount)
+                                   FROM KOTDetails kd
+                                   INNER JOIN KOTMaster k ON kd.KOTId = k.Id
+                                   WHERE (kd.IsVoided = 1 OR k.Status = 'Voided' OR k.IsVoided = 1)
+                                     AND CAST(ISNULL(kd.VoidedAt, ISNULL(k.VoidedAt, k.CreatedAt)) AS DATE) = CAST(s.SettlementDate AS DATE)
+                               ), 0.00)) as [Void / Cancelled],
                                s.ExpectedCash as [Expected Cash],
                                s.ActualCash as [Actual Cash],
                                s.Variance as [Variance],
@@ -741,6 +784,11 @@ namespace MeroDokan
                         if (gridHistory.Columns["Card Payment"] != null) gridHistory.Columns["Card Payment"].DefaultCellStyle.Format = "N2";
                         if (gridHistory.Columns["QR / UPI Payment"] != null) gridHistory.Columns["QR / UPI Payment"].DefaultCellStyle.Format = "N2";
                         if (gridHistory.Columns["Cash Refunds"] != null) gridHistory.Columns["Cash Refunds"].DefaultCellStyle.Format = "N2";
+                        if (gridHistory.Columns["Void / Cancelled"] != null)
+                        {
+                            gridHistory.Columns["Void / Cancelled"].DefaultCellStyle.Format = "N2";
+                            gridHistory.Columns["Void / Cancelled"].DefaultCellStyle.ForeColor = Color.FromArgb(248, 113, 113);
+                        }
                         if (gridHistory.Columns["Expected Cash"] != null) gridHistory.Columns["Expected Cash"].DefaultCellStyle.Format = "N2";
                         if (gridHistory.Columns["Actual Cash"] != null) gridHistory.Columns["Actual Cash"].DefaultCellStyle.Format = "N2";
                         if (gridHistory.Columns["Variance"] != null) gridHistory.Columns["Variance"].DefaultCellStyle.Format = "N2";
@@ -752,6 +800,7 @@ namespace MeroDokan
                         if (gridHistory.Columns["Card Payment"] != null) gridHistory.Columns["Card Payment"].FillWeight = 90;
                         if (gridHistory.Columns["QR / UPI Payment"] != null) gridHistory.Columns["QR / UPI Payment"].FillWeight = 95;
                         if (gridHistory.Columns["Cash Refunds"] != null) gridHistory.Columns["Cash Refunds"].FillWeight = 85;
+                        if (gridHistory.Columns["Void / Cancelled"] != null) gridHistory.Columns["Void / Cancelled"].FillWeight = 85;
                         if (gridHistory.Columns["Expected Cash"] != null) gridHistory.Columns["Expected Cash"].FillWeight = 90;
                         if (gridHistory.Columns["Actual Cash"] != null) gridHistory.Columns["Actual Cash"].FillWeight = 90;
                         if (gridHistory.Columns["Variance"] != null) gridHistory.Columns["Variance"].FillWeight = 80;

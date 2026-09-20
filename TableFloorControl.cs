@@ -1074,7 +1074,16 @@ namespace MeroDokan
             void AttachClickRecursively(Control parent)
             {
                 parent.Cursor = Cursors.Hand;
-                parent.Click += (s, e) => HandleCardClick();
+                parent.MouseUp += (s, e) => {
+                    if (e.Button == MouseButtons.Right)
+                    {
+                        ShowTableContextMenu(tableNum, status, card, e.Location);
+                    }
+                    else if (e.Button == MouseButtons.Left)
+                    {
+                        HandleCardClick();
+                    }
+                };
                 foreach (Control child in parent.Controls)
                 {
                     AttachClickRecursively(child);
@@ -1084,6 +1093,208 @@ namespace MeroDokan
             AttachClickRecursively(card);
 
             return card;
+        }
+
+        private void ShowTableContextMenu(string tableNum, string status, Control sourceControl, Point pt)
+        {
+            ContextMenuStrip menu = new ContextMenuStrip
+            {
+                BackColor = Color.FromArgb(20, 27, 42),
+                ForeColor = Color.White,
+                ShowImageMargin = false,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Regular),
+                Renderer = new SalesBillingControl.DarkMenuRenderer()
+            };
+
+            var itemOpen = new ToolStripMenuItem($"🍽️ Open Order ({tableNum})");
+            itemOpen.Click += (s, e) => {
+                string orderType = currentFilterMode == "TAKEAWAY" ? "TAKEAWAY" : (currentFilterMode == "DELIVERY" ? "DELIVERY" : "DINING");
+                OnTableSelected?.Invoke(tableNum, orderType);
+            };
+            menu.Items.Add(itemOpen);
+
+            if (status == "Running" || status == "Printed")
+            {
+                menu.Items.Add(new ToolStripSeparator());
+
+                var itemCancel = new ToolStripMenuItem("🚫 Cancel Order / Void KOT")
+                {
+                    ForeColor = Color.FromArgb(248, 113, 113) // Soft Red
+                };
+                itemCancel.Click += (s, e) => CancelOrderFromFloor(tableNum);
+                menu.Items.Add(itemCancel);
+
+                var itemShift = new ToolStripMenuItem("🔁 Shift Table");
+                itemShift.Click += (s, e) => {
+                    using (TableShiftDialog dlg = new TableShiftDialog(tableNum))
+                    {
+                        if (dlg.ShowDialog() == DialogResult.OK) LoadTableCards();
+                    }
+                };
+                menu.Items.Add(itemShift);
+
+                var itemShare = new ToolStripMenuItem("🪑 Share Table");
+                itemShare.Click += (s, e) => BtnShareTable_Click(tableNum);
+                menu.Items.Add(itemShare);
+            }
+
+            menu.Show(sourceControl, pt);
+        }
+
+        private void CancelOrderFromFloor(string tableNum)
+        {
+            int activeCount = 0;
+            decimal totalGross = 0;
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
+                {
+                    conn.Open();
+                    using (SqlCommand cmd = new SqlCommand(@"
+                        SELECT ISNULL(SUM(kd.Amount), 0), COUNT(DISTINCT k.Id)
+                        FROM KOTMaster k
+                        INNER JOIN KOTDetails kd ON k.Id = kd.KOTId AND kd.IsVoided = 0
+                        WHERE k.TableNumber = @tNum AND k.Status IN ('Active', 'Served', 'Printed')", conn))
+                    {
+                        cmd.Parameters.AddWithValue("@tNum", tableNum);
+                        using (SqlDataReader rdr = cmd.ExecuteReader())
+                        {
+                            if (rdr.Read())
+                            {
+                                totalGross = Convert.ToDecimal(rdr[0]);
+                                activeCount = Convert.ToInt32(rdr[1]);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            if (activeCount == 0)
+            {
+                MessageBox.Show($"Table {tableNum} does not have any active kitchen orders to cancel.", "Notice", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            string title = $"Table {tableNum} ({activeCount} KOT, ₹{totalGross:N0})";
+
+            using (VoidKotDialog dlg = new VoidKotDialog(title, 1))
+            {
+                if (dlg.ShowDialog() == DialogResult.OK)
+                {
+                    string reason = !string.IsNullOrWhiteSpace(dlg.Comment) ? dlg.Comment : (dlg.SelectedReason ?? "Order Cancelled by Customer");
+                    List<int> affectedKotIds = new List<int>();
+
+                    try
+                    {
+                        using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
+                        {
+                            conn.Open();
+                            using (SqlTransaction trans = conn.BeginTransaction())
+                            {
+                                try
+                                {
+                                    string findKotsSql = @"
+                                        SELECT Id FROM KOTMaster 
+                                        WHERE TableNumber = @tNum 
+                                          AND Status IN ('Active', 'Served', 'Printed')";
+
+                                    using (SqlCommand cmd = new SqlCommand(findKotsSql, conn, trans))
+                                    {
+                                        cmd.Parameters.AddWithValue("@tNum", tableNum);
+                                        using (SqlDataReader rdr = cmd.ExecuteReader())
+                                        {
+                                            while (rdr.Read())
+                                            {
+                                                affectedKotIds.Add(Convert.ToInt32(rdr["Id"]));
+                                            }
+                                        }
+                                    }
+
+                                    if (affectedKotIds.Count > 0)
+                                    {
+                                        string kotIdList = string.Join(",", affectedKotIds);
+                                        string updateDetailsSql = $@"
+                                            UPDATE KOTDetails
+                                            SET IsVoided = 1,
+                                                VoidReason = @reason,
+                                                VoidedAt = GETDATE()
+                                            WHERE KOTId IN ({kotIdList}) AND IsVoided = 0";
+
+                                        using (SqlCommand cmd = new SqlCommand(updateDetailsSql, conn, trans))
+                                        {
+                                            cmd.Parameters.AddWithValue("@reason", reason);
+                                            cmd.ExecuteNonQuery();
+                                        }
+
+                                        string updateMasterSql = $@"
+                                            UPDATE KOTMaster
+                                            SET Status = 'Voided',
+                                                IsVoided = 1,
+                                                VoidReason = @reason,
+                                                VoidedAt = GETDATE(),
+                                                KotComment = ISNULL(KotComment + ' | ', '') + 'CANCELLED: ' + @reason
+                                            WHERE Id IN ({kotIdList})";
+
+                                        using (SqlCommand cmd = new SqlCommand(updateMasterSql, conn, trans))
+                                        {
+                                            cmd.Parameters.AddWithValue("@reason", reason);
+                                            cmd.ExecuteNonQuery();
+                                        }
+                                    }
+
+                                    string resetTableSql = @"
+                                        UPDATE CafeTables
+                                        SET Status = 'Available',
+                                            CurrentBillAmount = 0.00,
+                                            ActiveKotNumbers = NULL,
+                                            CurrentSteward = NULL,
+                                            OrderStartTime = NULL
+                                        WHERE TableNumber = @tNum";
+
+                                    using (SqlCommand cmd = new SqlCommand(resetTableSql, conn, trans))
+                                    {
+                                        cmd.Parameters.AddWithValue("@tNum", tableNum);
+                                        cmd.ExecuteNonQuery();
+                                    }
+
+                                    trans.Commit();
+                                }
+                                catch
+                                {
+                                    trans.Rollback();
+                                    throw;
+                                }
+                            }
+                        }
+
+                        if (dlg.ShouldPrintSlip && affectedKotIds.Count > 0)
+                        {
+                            foreach (int kId in affectedKotIds)
+                            {
+                                try
+                                {
+                                    ThermalReceiptPrinter.PrintVoidKOT(kId, reason);
+                                }
+                                catch { }
+                            }
+                        }
+
+                        LoadTableCards();
+                        MainForm.Instance?.RefreshLiveOrderCounts();
+
+                        MessageBox.Show(
+                            $"Order for Table {tableNum} was CANCELLED and VOIDED successfully.\n\nReason: {reason}\nAudit record saved to KOT & Reports Register.\nTable is now Available.",
+                            "Order Cancelled",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Information);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Failed to cancel order: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+            }
         }
 
         private void BtnTableShift_Click(object sender, EventArgs e)

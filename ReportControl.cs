@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
 using System.IO;
 using System.Drawing;
@@ -147,6 +148,25 @@ namespace MeroDokan
         private Label lblRawStockAssetVal;
         private Label lblRawLowStockVal;
 
+        // Void / Cancelled KOTs Report controls
+        private Panel panelVoidKots;
+        private Button btnTabVoidKots;
+        private DateTimePicker voidFromDate;
+        private DateTimePicker voidToDate;
+        private ComboBox comboVoidDateFilter;
+        private ComboBox comboVoidStaff;
+        private TextBox txtVoidSearch;
+        private DataGridView gridVoidKots;
+        private Button btnVoidSearch;
+        private Panel cardVoidKotCount;
+        private Panel cardVoidItemCount;
+        private Panel cardVoidLossAmount;
+        private Panel cardVoidTopReason;
+        private Label lblVoidKotCountVal;
+        private Label lblVoidItemCountVal;
+        private Label lblVoidLossAmountVal;
+        private Label lblVoidTopReasonVal;
+
         public ReportControl()
         {
             InitializeComponent();
@@ -162,6 +182,7 @@ namespace MeroDokan
             LoadStaffFilterDropdown();
             LoadStaffCommissions();
             LoadStylistJobsReport();
+            LoadVoidKotsReport();
 
             this.Load += (s, e) => {
                 if (txtSalesSearch != null)
@@ -179,6 +200,7 @@ namespace MeroDokan
             // Page Header
             Label lblHeader = new Label();
             lblHeader.Text = "Reports & Business Intelligence Center";
+            lblHeader.UseMnemonic = false;
             lblHeader.Location = new Point(20, 15);
             lblHeader.AutoSize = true;
             Theme.StyleLabel(lblHeader, Theme.TextLight, Theme.HeaderFont);
@@ -231,6 +253,18 @@ namespace MeroDokan
             btnTabStylistJobs.UseMnemonic = false;
             btnTabStylistJobs.Click += (s, e) => ShowTab(panelStylistJobs, btnTabStylistJobs);
             tabHeaderPanel.Controls.Add(btnTabStylistJobs);
+
+            btnTabVoidKots = new Button();
+            btnTabVoidKots.Text = "🚫 Cancelled / Void KOTs";
+            btnTabVoidKots.Height = 34;
+            btnTabVoidKots.AutoSize = true;
+            btnTabVoidKots.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            btnTabVoidKots.Padding = new Padding(12, 0, 12, 0);
+            btnTabVoidKots.Margin = new Padding(0, 0, 6, 6);
+            btnTabVoidKots.UseMnemonic = false;
+            StyleTabButton(btnTabVoidKots, false);
+            btnTabVoidKots.Click += (s, e) => ShowTab(panelVoidKots, btnTabVoidKots);
+            tabHeaderPanel.Controls.Add(btnTabVoidKots);
 
             btnTabStaffCommissions = new Button();
             btnTabStaffCommissions.Text = "🧑‍🍳 Staff Sales";
@@ -332,10 +366,16 @@ namespace MeroDokan
             panelRawMaterialUsage.BackColor = Theme.Secondary;
             tabContentPanel.Controls.Add(panelRawMaterialUsage);
 
+            panelVoidKots = new Panel();
+            panelVoidKots.Dock = DockStyle.Fill;
+            panelVoidKots.BackColor = Theme.Secondary;
+            tabContentPanel.Controls.Add(panelVoidKots);
+
             // Initialize content inside the panels
             InitializeSalesTab(panelDailySales);
             InitializeCollectionSummaryTab(panelCollectionSummary);
             InitializeStylistJobsTab(panelStylistJobs);
+            InitializeVoidKotsReportTab(panelVoidKots);
             InitializeStaffCommissionTab(panelStaffCommissions);
             InitializePLTab(panelProfitLoss);
             InitializePurchaseTab(panelPurchaseInward);
@@ -358,6 +398,7 @@ namespace MeroDokan
             if (panelDailySales != null) panelDailySales.Visible = false;
             if (panelCollectionSummary != null) panelCollectionSummary.Visible = false;
             if (panelStylistJobs != null) panelStylistJobs.Visible = false;
+            if (panelVoidKots != null) panelVoidKots.Visible = false;
             if (panelStaffCommissions != null) panelStaffCommissions.Visible = false;
             if (panelProfitLoss != null) panelProfitLoss.Visible = false;
             if (panelPurchaseInward != null) panelPurchaseInward.Visible = false;
@@ -369,6 +410,7 @@ namespace MeroDokan
             if (btnTabSales != null) StyleTabButton(btnTabSales, btnTabSales == activeBtn);
             if (btnTabCollectionSummary != null) StyleTabButton(btnTabCollectionSummary, btnTabCollectionSummary == activeBtn);
             if (btnTabStylistJobs != null) StyleTabButton(btnTabStylistJobs, btnTabStylistJobs == activeBtn);
+            if (btnTabVoidKots != null) StyleTabButton(btnTabVoidKots, btnTabVoidKots == activeBtn);
             if (btnTabStaffCommissions != null) StyleTabButton(btnTabStaffCommissions, btnTabStaffCommissions == activeBtn);
             if (btnTabPL != null) StyleTabButton(btnTabPL, btnTabPL == activeBtn);
             if (btnTabStockRegister != null) StyleTabButton(btnTabStockRegister, btnTabStockRegister == activeBtn);
@@ -2442,6 +2484,12 @@ Period: {fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}
                     comboJobsStaff.Items.Add(new SalesBillingControl.ComboBoxItem { Id = 0, Display = "All Stewards & Staff" });
                 }
 
+                if (comboVoidStaff != null)
+                {
+                    comboVoidStaff.Items.Clear();
+                    comboVoidStaff.Items.Add(new SalesBillingControl.ComboBoxItem { Id = 0, Display = "All Stewards & Staff" });
+                }
+
                 using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
                 {
                     conn.Open();
@@ -2462,12 +2510,17 @@ Period: {fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}
                                     Id = sId,
                                     Display = sDisplay
                                 });
+                                comboVoidStaff?.Items.Add(new SalesBillingControl.ComboBoxItem {
+                                    Id = sId,
+                                    Display = sDisplay
+                                });
                             }
                         }
                     }
                 }
                 if (comboCommStaff != null && comboCommStaff.Items.Count > 0) comboCommStaff.SelectedIndex = 0;
                 if (comboJobsStaff != null && comboJobsStaff.Items.Count > 0) comboJobsStaff.SelectedIndex = 0;
+                if (comboVoidStaff != null && comboVoidStaff.Items.Count > 0) comboVoidStaff.SelectedIndex = 0;
             }
             catch { }
         }
@@ -2553,6 +2606,270 @@ Period: {fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}
             {
                 MessageBox.Show($"Error loading table & KOT sales report: {ex.Message}", "Database Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        private void InitializeVoidKotsReportTab(Panel page)
+        {
+            // Filter Bar
+            FlowLayoutPanel filterBar = new FlowLayoutPanel();
+            filterBar.Location = new Point(20, 15);
+            filterBar.Size = new Size(870, 42);
+            filterBar.FlowDirection = FlowDirection.LeftToRight;
+            filterBar.WrapContents = false;
+            filterBar.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            filterBar.BackColor = Color.Transparent;
+
+            // Date Range Preset ComboBox
+            comboVoidDateFilter = new ComboBox();
+            comboVoidDateFilter.Size = new Size(115, 28);
+            comboVoidDateFilter.Margin = new Padding(0, 2, 6, 2);
+            comboVoidDateFilter.DropDownStyle = ComboBoxStyle.DropDownList;
+            comboVoidDateFilter.Items.AddRange(new object[] { "Today", "Yesterday", "Last 7 Days", "This Month", "Last Month", "Custom" });
+            Theme.StyleComboBox(comboVoidDateFilter);
+            filterBar.Controls.Add(comboVoidDateFilter);
+
+            Label lblFrom = new Label();
+            lblFrom.Text = "From:";
+            lblFrom.Margin = new Padding(2, 6, 2, 2);
+            lblFrom.AutoSize = true;
+            Theme.StyleLabel(lblFrom, Theme.TextDark, Theme.BoldFont);
+            filterBar.Controls.Add(lblFrom);
+
+            voidFromDate = new DateTimePicker();
+            voidFromDate.Format = DateTimePickerFormat.Short;
+            voidFromDate.Size = new Size(95, 28);
+            voidFromDate.Margin = new Padding(2, 2, 3, 2);
+            voidFromDate.Font = Theme.MainFont;
+            filterBar.Controls.Add(voidFromDate);
+
+            Label lblTo = new Label();
+            lblTo.Text = "To:";
+            lblTo.Margin = new Padding(4, 6, 2, 2);
+            lblTo.AutoSize = true;
+            Theme.StyleLabel(lblTo, Theme.TextDark, Theme.BoldFont);
+            filterBar.Controls.Add(lblTo);
+
+            voidToDate = new DateTimePicker();
+            voidToDate.Format = DateTimePickerFormat.Short;
+            voidToDate.Size = new Size(95, 28);
+            voidToDate.Margin = new Padding(2, 2, 3, 2);
+            voidToDate.Font = Theme.MainFont;
+            filterBar.Controls.Add(voidToDate);
+
+            Label lblStaff = new Label();
+            lblStaff.Text = "Steward:";
+            lblStaff.Margin = new Padding(4, 6, 2, 2);
+            lblStaff.AutoSize = true;
+            Theme.StyleLabel(lblStaff, Theme.TextDark, Theme.BoldFont);
+            filterBar.Controls.Add(lblStaff);
+
+            comboVoidStaff = new ComboBox();
+            comboVoidStaff.Size = new Size(130, 28);
+            comboVoidStaff.Margin = new Padding(2, 2, 4, 2);
+            comboVoidStaff.DropDownStyle = ComboBoxStyle.DropDownList;
+            Theme.StyleComboBox(comboVoidStaff);
+            filterBar.Controls.Add(comboVoidStaff);
+
+            Label lblSearch = new Label();
+            lblSearch.Text = "Search:";
+            lblSearch.Margin = new Padding(4, 6, 2, 2);
+            lblSearch.AutoSize = true;
+            Theme.StyleLabel(lblSearch, Theme.TextDark, Theme.BoldFont);
+            filterBar.Controls.Add(lblSearch);
+
+            txtVoidSearch = new TextBox();
+            txtVoidSearch.Size = new Size(110, 28);
+            txtVoidSearch.Margin = new Padding(2, 2, 4, 2);
+            Theme.StyleTextBox(txtVoidSearch);
+            txtVoidSearch.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; LoadVoidKotsReport(); } };
+            filterBar.Controls.Add(txtVoidSearch);
+
+            btnVoidSearch = new Button();
+            btnVoidSearch.Text = "🔍 Search";
+            btnVoidSearch.Size = new Size(80, 28);
+            btnVoidSearch.Margin = new Padding(2, 2, 4, 2);
+            Theme.StylePrimaryButton(btnVoidSearch);
+            btnVoidSearch.Click += (s, e) => LoadVoidKotsReport();
+            filterBar.Controls.Add(btnVoidSearch);
+
+            Button btnExportVoid = new Button();
+            btnExportVoid.Text = "📊 Export Excel";
+            btnExportVoid.Size = new Size(115, 28);
+            btnExportVoid.Margin = new Padding(2, 2, 2, 2);
+            Theme.StyleSuccessButton(btnExportVoid);
+            btnExportVoid.Click += (s, e) => ExportGridToExcel(gridVoidKots, "Cancelled_Voided_KOT_Report", "Cancelled Orders & Voided KOT Audit Register");
+            filterBar.Controls.Add(btnExportVoid);
+
+            page.Controls.Add(filterBar);
+
+            // 4 KPI Summary Cards Layout
+            TableLayoutPanel layoutCards = new TableLayoutPanel();
+            layoutCards.Location = new Point(20, 68);
+            layoutCards.Size = new Size(870, 75);
+            layoutCards.ColumnCount = 4;
+            layoutCards.RowCount = 1;
+            layoutCards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
+            layoutCards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
+            layoutCards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
+            layoutCards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
+            layoutCards.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            layoutCards.BackColor = Color.Transparent;
+            page.Controls.Add(layoutCards);
+
+            // Card 1: Total Cancelled Tickets
+            cardVoidKotCount = Theme.CreateCard(210, 65);
+            cardVoidKotCount.Dock = DockStyle.Fill;
+            cardVoidKotCount.Margin = new Padding(0, 0, 6, 0);
+            lblVoidKotCountVal = CreatePLCardContent(cardVoidKotCount, "CANCELLED TICKETS", "0 KOTs", Theme.Accent);
+            layoutCards.Controls.Add(cardVoidKotCount, 0, 0);
+
+            // Card 2: Total Voided Items
+            cardVoidItemCount = Theme.CreateCard(210, 65);
+            cardVoidItemCount.Dock = DockStyle.Fill;
+            cardVoidItemCount.Margin = new Padding(6, 0, 6, 0);
+            lblVoidItemCountVal = CreatePLCardContent(cardVoidItemCount, "VOIDED ITEMS", "0 Items", Theme.TextWhite);
+            layoutCards.Controls.Add(cardVoidItemCount, 1, 0);
+
+            // Card 3: Total Loss Value
+            cardVoidLossAmount = Theme.CreateCard(210, 65);
+            cardVoidLossAmount.Dock = DockStyle.Fill;
+            cardVoidLossAmount.Margin = new Padding(6, 0, 6, 0);
+            lblVoidLossAmountVal = CreatePLCardContent(cardVoidLossAmount, "TOTAL VOID LOSS", "Rs. 0.00", Theme.Danger);
+            layoutCards.Controls.Add(cardVoidLossAmount, 2, 0);
+
+            // Card 4: Top Cancellation Reason
+            cardVoidTopReason = Theme.CreateCard(210, 65);
+            cardVoidTopReason.Dock = DockStyle.Fill;
+            cardVoidTopReason.Margin = new Padding(6, 0, 0, 0);
+            lblVoidTopReasonVal = CreatePLCardContent(cardVoidTopReason, "TOP CANCEL REASON", "None", Color.FromArgb(251, 191, 36)); // Amber
+            layoutCards.Controls.Add(cardVoidTopReason, 3, 0);
+
+            // DataGridView for Voided KOT Items
+            gridVoidKots = new DataGridView();
+            gridVoidKots.Location = new Point(20, 150);
+            gridVoidKots.Size = new Size(870, 335);
+            gridVoidKots.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+            Theme.StyleGrid(gridVoidKots);
+            page.Controls.Add(gridVoidKots);
+
+            comboVoidDateFilter.SelectedIndexChanged += (s, e) => {
+                ApplyDateRangePreset(comboVoidDateFilter.SelectedItem.ToString(), voidFromDate, voidToDate, () => LoadVoidKotsReport());
+            };
+            comboVoidDateFilter.SelectedIndex = 3; // "This Month"
+        }
+
+        private void LoadVoidKotsReport()
+        {
+            try
+            {
+                if (gridVoidKots == null) return;
+
+                int totalTickets = 0;
+                int totalItems = 0;
+                decimal totalLoss = 0;
+                Dictionary<string, int> reasonCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+                using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
+                {
+                    conn.Open();
+
+                    string query = @"
+                        SELECT 
+                            k.KOTNumber AS [KOT #],
+                            k.TableNumber AS [Table / Token],
+                            k.OrderType AS [Order Type],
+                            ISNULL(k.Steward, 'Direct Counter') AS [Steward],
+                            kd.ItemName AS [Item Name],
+                            kd.Quantity AS [Qty],
+                            kd.Rate AS [Rate (Rs.)],
+                            kd.Amount AS [Loss Value (Rs.)],
+                            ISNULL(kd.VoidReason, ISNULL(k.VoidReason, 'Order Cancelled')) AS [Cancellation Reason],
+                            CONVERT(VARCHAR(16), k.CreatedAt, 120) AS [Order Time],
+                            CONVERT(VARCHAR(16), ISNULL(kd.VoidedAt, ISNULL(k.VoidedAt, k.CreatedAt)), 120) AS [Cancelled At]
+                        FROM KOTDetails kd
+                        INNER JOIN KOTMaster k ON kd.KOTId = k.Id
+                        WHERE (kd.IsVoided = 1 OR k.Status = 'Voided' OR k.IsVoided = 1)
+                          AND CAST(ISNULL(kd.VoidedAt, ISNULL(k.VoidedAt, k.CreatedAt)) AS DATE) BETWEEN @from AND @to";
+
+                    if (comboVoidStaff?.SelectedItem is SalesBillingControl.ComboBoxItem filterStaff && filterStaff.Id > 0)
+                    {
+                        string sName = filterStaff.Display.Split(' ')[0];
+                        query += " AND (k.Steward = @staffName OR k.Steward LIKE @staffPattern)";
+                    }
+
+                    string search = txtVoidSearch?.Text?.Trim() ?? "";
+                    if (!string.IsNullOrEmpty(search))
+                    {
+                        query += " AND (kd.ItemName LIKE @search OR k.TableNumber LIKE @search OR ISNULL(kd.VoidReason, k.VoidReason) LIKE @search)";
+                    }
+
+                    query += " ORDER BY ISNULL(kd.VoidedAt, ISNULL(k.VoidedAt, k.CreatedAt)) DESC, k.KOTNumber DESC, kd.Id ASC";
+
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@from", voidFromDate.Value.Date);
+                        cmd.Parameters.AddWithValue("@to", voidToDate.Value.Date);
+
+                        if (comboVoidStaff?.SelectedItem is SalesBillingControl.ComboBoxItem staffItem && staffItem.Id > 0)
+                        {
+                            string sName = staffItem.Display.Split(' ')[0];
+                            cmd.Parameters.AddWithValue("@staffName", sName);
+                            cmd.Parameters.AddWithValue("@staffPattern", "%" + sName + "%");
+                        }
+
+                        if (!string.IsNullOrEmpty(search))
+                        {
+                            cmd.Parameters.AddWithValue("@search", "%" + search + "%");
+                        }
+
+                        using (SqlDataAdapter da = new SqlDataAdapter(cmd))
+                        {
+                            DataTable dt = new DataTable();
+                            da.Fill(dt);
+                            gridVoidKots.DataSource = dt;
+
+                            if (gridVoidKots.Columns["Rate (Rs.)"] != null) gridVoidKots.Columns["Rate (Rs.)"].DefaultCellStyle.Format = "N2";
+                            if (gridVoidKots.Columns["Loss Value (Rs.)"] != null) gridVoidKots.Columns["Loss Value (Rs.)"].DefaultCellStyle.Format = "N2";
+
+                            HashSet<int> distinctKotNumbers = new HashSet<int>();
+                            foreach (DataRow row in dt.Rows)
+                            {
+                                int kotNum = Convert.ToInt32(row["KOT #"]);
+                                distinctKotNumbers.Add(kotNum);
+                                int q = Convert.ToInt32(row["Qty"]);
+                                decimal val = Convert.ToDecimal(row["Loss Value (Rs.)"]);
+                                string reason = row["Cancellation Reason"]?.ToString() ?? "Cancelled";
+
+                                totalItems += q;
+                                totalLoss += val;
+
+                                if (!reasonCounts.ContainsKey(reason)) reasonCounts[reason] = 0;
+                                reasonCounts[reason]++;
+                            }
+                            totalTickets = distinctKotNumbers.Count;
+                        }
+                    }
+                }
+
+                // Update KPI Cards
+                if (lblVoidKotCountVal != null) lblVoidKotCountVal.Text = $"{totalTickets} KOTs";
+                if (lblVoidItemCountVal != null) lblVoidItemCountVal.Text = $"{totalItems} Items";
+                if (lblVoidLossAmountVal != null) lblVoidLossAmountVal.Text = $"Rs. {totalLoss:N2}";
+
+                string topReason = "None";
+                int maxReasonCount = 0;
+                foreach (var kvp in reasonCounts)
+                {
+                    if (kvp.Value > maxReasonCount)
+                    {
+                        maxReasonCount = kvp.Value;
+                        topReason = kvp.Key;
+                    }
+                }
+                if (topReason.Length > 22) topReason = topReason.Substring(0, 20) + "...";
+                if (lblVoidTopReasonVal != null) lblVoidTopReasonVal.Text = topReason;
+            }
+            catch { }
         }
 
         private void LoadStaffCommissions()

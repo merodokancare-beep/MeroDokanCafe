@@ -17,6 +17,7 @@ namespace MeroDokan
         private DataGridView gridHistory;
         private Button btnTabLive;
         private Button btnTabHistory;
+        private Button btnTabVoided;
         private System.Windows.Forms.Timer refreshTimer;
         private Button btnRefresh;
         private Button btnClearHistory;
@@ -118,9 +119,13 @@ namespace MeroDokan
             btnTabLive.Click += (s, e) => SwitchTab(0);
             modeTabsPanel.Controls.Add(btnTabLive);
 
-            btnTabHistory = CreateTabButton("📜 KOT History & Logs", false);
+            btnTabHistory = CreateTabButton("📜 All KOT Logs", false);
             btnTabHistory.Click += (s, e) => SwitchTab(1);
             modeTabsPanel.Controls.Add(btnTabHistory);
+
+            btnTabVoided = CreateTabButton("🚫 Cancelled / Voided Orders", false);
+            btnTabVoided.Click += (s, e) => SwitchTab(2);
+            modeTabsPanel.Controls.Add(btnTabVoided);
 
             topHeaderTable.Controls.Add(modeTabsPanel, 0, 0);
 
@@ -216,6 +221,33 @@ namespace MeroDokan
             gridHistory = new DataGridView();
             Theme.StyleGrid(gridHistory);
             gridHistory.Dock = DockStyle.Fill;
+            gridHistory.CellFormatting += (s, e) => {
+                if (e.RowIndex >= 0 && e.RowIndex < gridHistory.Rows.Count)
+                {
+                    var row = gridHistory.Rows[e.RowIndex];
+                    string status = row.Cells["Status"]?.Value?.ToString() ?? "";
+                    if (status.Equals("Voided", StringComparison.OrdinalIgnoreCase))
+                    {
+                        row.DefaultCellStyle.ForeColor = Color.FromArgb(248, 113, 113); // Soft Red
+                        row.DefaultCellStyle.SelectionForeColor = Color.FromArgb(254, 202, 202);
+                    }
+                    else if (status.Equals("Served", StringComparison.OrdinalIgnoreCase))
+                    {
+                        row.DefaultCellStyle.ForeColor = Color.FromArgb(52, 211, 153); // Emerald
+                    }
+                }
+            };
+            gridHistory.CellDoubleClick += (s, e) => {
+                if (e.RowIndex >= 0 && e.RowIndex < gridHistory.Rows.Count)
+                {
+                    if (gridHistory.Rows[e.RowIndex].Cells["Id"] != null)
+                    {
+                        int kotId = Convert.ToInt32(gridHistory.Rows[e.RowIndex].Cells["Id"].Value);
+                        ShowKotDetailsModal(kotId);
+                    }
+                }
+            };
+
             historyPanel.Controls.Add(gridHistory);
             contentHostPanel.Controls.Add(historyPanel);
 
@@ -262,6 +294,7 @@ namespace MeroDokan
             currentTabIndex = tabIndex;
             UpdateTabStyle(btnTabLive, currentTabIndex == 0);
             UpdateTabStyle(btnTabHistory, currentTabIndex == 1);
+            UpdateTabStyle(btnTabVoided, currentTabIndex == 2);
             if (btnClearHistory != null) btnClearHistory.Visible = (currentTabIndex == 1);
 
             if (currentTabIndex == 0)
@@ -681,14 +714,30 @@ namespace MeroDokan
                 using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
                 {
                     conn.Open();
-                    string query = @"
-                        SELECT k.Id, k.KOTNumber as [KOT #], k.TableNumber as [Table #], k.OrderType as [Type], 
-                               k.Steward as [Steward], k.CreatedAt as [Date & Time], k.Status as [Status],
-                               ISNULL(k.KotComment, '') as [Kitchen Notes],
-                               (SELECT COUNT(*) FROM KOTDetails WHERE KOTId = k.Id) as [Items Count],
-                               ISNULL(s.InvoiceNumber, '-') as [Settled Invoice]
+
+                    string whereClause = "";
+                    if (currentTabIndex == 2)
+                    {
+                        whereClause = "WHERE (k.Status = 'Voided' OR k.IsVoided = 1 OR EXISTS (SELECT 1 FROM KOTDetails kd WHERE kd.KOTId = k.Id AND kd.IsVoided = 1))";
+                    }
+
+                    string query = $@"
+                        SELECT k.Id, 
+                               k.KOTNumber AS [KOT #], 
+                               k.TableNumber AS [Table / Token], 
+                               k.OrderType AS [Order Type], 
+                               ISNULL(k.Steward, '-') AS [Steward], 
+                               k.Status AS [Status],
+                               (SELECT COUNT(*) FROM KOTDetails WHERE KOTId = k.Id) AS [Total Items],
+                               (SELECT ISNULL(SUM(Amount), 0) FROM KOTDetails WHERE KOTId = k.Id AND IsVoided = 1) AS [Void / Loss (Rs.)],
+                               ISNULL(k.VoidReason, (SELECT TOP 1 VoidReason FROM KOTDetails WHERE KOTId = k.Id AND IsVoided = 1)) AS [Cancellation Reason],
+                               k.VoidedAt AS [Cancelled At],
+                               k.CreatedAt AS [Created Time],
+                               ISNULL(s.InvoiceNumber, '-') AS [Settled Invoice],
+                               ISNULL(k.KotComment, '') AS [Notes]
                         FROM KOTMaster k
                         LEFT JOIN Sales s ON k.SaleId = s.Id
+                        {whereClause}
                         ORDER BY k.Id DESC";
 
                     using (SqlDataAdapter da = new SqlDataAdapter(query, conn))
@@ -696,10 +745,82 @@ namespace MeroDokan
                         DataTable dt = new DataTable();
                         da.Fill(dt);
                         gridHistory.DataSource = dt;
+
+                        if (gridHistory.Columns["Id"] != null)
+                            gridHistory.Columns["Id"].Visible = false;
                     }
                 }
             }
             catch { }
+        }
+
+        private void ShowKotDetailsModal(int kotId)
+        {
+            try
+            {
+                Form dlg = new Form
+                {
+                    Text = $"KOT #{kotId} Details & Audit Trail",
+                    Size = new Size(680, 480),
+                    StartPosition = FormStartPosition.CenterParent,
+                    BackColor = Theme.CardBg,
+                    ForeColor = Theme.TextLight,
+                    FormBorderStyle = FormBorderStyle.FixedDialog,
+                    MaximizeBox = false,
+                    MinimizeBox = false
+                };
+
+                DataGridView grid = new DataGridView
+                {
+                    Dock = DockStyle.Fill,
+                    ReadOnly = true
+                };
+                Theme.StyleGrid(grid);
+
+                grid.CellFormatting += (s, e) => {
+                    if (e.RowIndex >= 0 && e.RowIndex < grid.Rows.Count)
+                    {
+                        var row = grid.Rows[e.RowIndex];
+                        string voided = row.Cells["Voided?"]?.Value?.ToString() ?? "";
+                        if (voided.Equals("Yes", StringComparison.OrdinalIgnoreCase))
+                        {
+                            row.DefaultCellStyle.ForeColor = Color.FromArgb(248, 113, 113);
+                        }
+                    }
+                };
+
+                using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
+                {
+                    conn.Open();
+                    string sql = @"
+                        SELECT ItemName AS [Item Name], 
+                               Quantity AS [Qty], 
+                               Rate AS [Rate (Rs.)], 
+                               Amount AS [Total (Rs.)], 
+                               CASE WHEN IsVoided = 1 THEN 'Yes' ELSE 'No' END AS [Voided?],
+                               ISNULL(VoidReason, '-') AS [Void Reason],
+                               VoidedAt AS [Voided At],
+                               ISNULL(Instructions, '') AS [Instructions]
+                        FROM KOTDetails
+                        WHERE KOTId = @id
+                        ORDER BY Id ASC";
+
+                    using (SqlDataAdapter da = new SqlDataAdapter(sql, conn))
+                    {
+                        da.SelectCommand.Parameters.AddWithValue("@id", kotId);
+                        DataTable dt = new DataTable();
+                        da.Fill(dt);
+                        grid.DataSource = dt;
+                    }
+                }
+
+                dlg.Controls.Add(grid);
+                dlg.ShowDialog(this);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to view KOT details: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void ClearKotHistory()

@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <None Include="app_icon.ico" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="dbconfig.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="System.Data.SqlClient" Version="4.8.6" />
     <PackageReference Include="QRCoder" Version="1.6.0" />

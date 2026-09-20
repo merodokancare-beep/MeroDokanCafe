@@ -1,0 +1,8 @@
+Server=(localdb)\MSSQLLocalDB
+Database=MeroDokanCafeDB
+IntegratedSecurity=True
+Username=sa
+Password=Welcome123
+ConnectionTimeout=30
+ConnectRetryCount=3
+ConnectRetryInterval=10
