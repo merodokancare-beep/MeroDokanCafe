@@ -8,7 +8,7 @@ using System.Text;
 
 namespace MeroDokan
 {
-    public class RawMaterialInventoryControl : UserControl
+    public class RawMaterialInventoryControl : UserControl, IFocusableControl
     {
         private FlowLayoutPanel tabHeaderPanel;
         private Panel tabContentPanel;
@@ -98,6 +98,21 @@ namespace MeroDokan
             LoadTodayIssuedList();
             LoadTodayReturnsData();
             LoadLedgerData();
+            this.Load += (s, e) => FocusDefaultControl();
+            this.VisibleChanged += (s, e) => { if (this.Visible) FocusDefaultControl(); };
+        }
+
+        public void FocusDefaultControl()
+        {
+            try
+            {
+                if (txtSearchRegister != null && !txtSearchRegister.IsDisposed && txtSearchRegister.Visible)
+                {
+                    txtSearchRegister.Focus();
+                    txtSearchRegister.SelectAll();
+                }
+            }
+            catch { }
         }
 
         private void InitializeComponent()

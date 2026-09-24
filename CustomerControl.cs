@@ -6,7 +6,7 @@ using System.Data.SqlClient;
 
 namespace MeroDokan
 {
-    public class CustomerControl : UserControl
+    public class CustomerControl : UserControl, IFocusableControl
     {
         private TextBox txtSearch;
         private DataGridView gridCustomers;
@@ -18,7 +18,21 @@ namespace MeroDokan
         {
             InitializeComponent();
             LoadCustomers();
-            this.Load += (s, e) => txtSearch.Focus();
+            this.Load += (s, e) => FocusDefaultControl();
+            this.VisibleChanged += (s, e) => { if (this.Visible) FocusDefaultControl(); };
+        }
+
+        public void FocusDefaultControl()
+        {
+            try
+            {
+                if (txtSearch != null && !txtSearch.IsDisposed && txtSearch.Visible)
+                {
+                    txtSearch.Focus();
+                    txtSearch.SelectAll();
+                }
+            }
+            catch { }
         }
 
         private void InitializeComponent()

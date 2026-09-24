@@ -1374,6 +1374,8 @@ namespace MeroDokan
                             ALTER TABLE SaleDetails ADD SGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
                         IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SaleDetails') AND name = 'IGSTAmount')
                             ALTER TABLE SaleDetails ADD IGSTAmount DECIMAL(18,2) NOT NULL DEFAULT 0.00;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SaleDetails') AND name = 'Instructions')
+                            ALTER TABLE SaleDetails ADD Instructions NVARCHAR(250) NULL;
 
                         -- Appointments migrations
                         ALTER TABLE Appointments ALTER COLUMN AppointmentTime NVARCHAR(100) NOT NULL;
@@ -1480,7 +1482,7 @@ namespace MeroDokan
                         staffCount = (int)cmd.ExecuteScalar();
                     }
 
-                    if (staffCount == 0)
+                    if (userCount == 0 && staffCount == 0)
                     {
                         using (SqlCommand cmd = new SqlCommand(@"
                             INSERT INTO Staff (Name, Phone, Email, Role, CommissionRate, IsActive) VALUES 
@@ -1702,23 +1704,6 @@ namespace MeroDokan
                         ';
 
 
-
-                        -- Seed Stewards / Waiters and Direct Counter staff
-                        IF NOT EXISTS (SELECT * FROM Staff WHERE Name IN ('Tashi', 'Pemba', 'Karma'))
-                        BEGIN
-                            INSERT INTO Staff (Name, Phone, Email, Role, CommissionRate, IsActive) VALUES
-                            ('Direct Counter', '0000000000', 'counter@thelocalcafe.com', 'Counter & Cashier', 0.00, 1),
-                            ('Tashi', '9971500001', 'tashi@thelocalcafe.com', 'Steward', 0.00, 1),
-                            ('Pemba', '9971500002', 'pemba@thelocalcafe.com', 'Steward', 0.00, 1),
-                            ('Karma', '9971500003', 'karma@thelocalcafe.com', 'Captain', 0.00, 1),
-                            ('Dawa', '9971500004', 'dawa@thelocalcafe.com', 'Steward', 0.00, 1),
-                            ('Passang', '9971500005', 'passang@thelocalcafe.com', 'Chef', 0.00, 1);
-                        END
-                        ELSE IF NOT EXISTS (SELECT * FROM Staff WHERE Name = 'Direct Counter')
-                        BEGIN
-                            INSERT INTO Staff (Name, Phone, Email, Role, CommissionRate, IsActive) VALUES
-                            ('Direct Counter', '0000000000', 'counter@thelocalcafe.com', 'Counter & Cashier', 0.00, 1);
-                        END
 
                         -- Ensure default theme is Emerald Mint
                         UPDATE AppProfile SET ThemePreset = 'Emerald Mint' WHERE ThemePreset IS NULL OR ThemePreset = '' OR ThemePreset = 'Dark Slate';

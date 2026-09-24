@@ -391,9 +391,12 @@ namespace MeroDokan
                 // 3. Sale Items
                 using (SqlCommand cmd = new SqlCommand(@"
                     SELECT 
-                        CASE WHEN sd.ItemType = 'Service' THEN s.Name ELSE p.Name END AS ItemName,
+                        CASE WHEN sd.ItemType = 'Packaging' THEN 'Packaging Charges'
+                             WHEN sd.ItemType = 'Service' THEN s.Name 
+                             ELSE ISNULL(p.Name, 'Packaging Charges') END AS ItemName,
                         sd.Quantity, sd.UnitPrice, sd.Total,
-                        ISNULL(sd.TaxableAmount, sd.Total) AS TaxableAmount
+                        ISNULL(sd.TaxableAmount, sd.Total) AS TaxableAmount,
+                        ISNULL(sd.Instructions, '') AS Instructions
                     FROM SaleDetails sd
                     LEFT JOIN Products p ON sd.ProductId = p.Id
                     LEFT JOIN Services s ON sd.ServiceId = s.Id
@@ -407,6 +410,11 @@ namespace MeroDokan
                         {
                             var it = new CafeBillItem();
                             it.Name = r["ItemName"]?.ToString() ?? "Item";
+                            string inst = r["Instructions"]?.ToString()?.Trim();
+                            if (!string.IsNullOrEmpty(inst))
+                            {
+                                it.Name += $" [{inst}]";
+                            }
                             it.Qty = Convert.ToInt32(r["Quantity"]);
                             it.Rate = Convert.ToDecimal(r["UnitPrice"]);
                             it.Amt = Convert.ToDecimal(r["TaxableAmount"]);
@@ -478,6 +486,11 @@ namespace MeroDokan
 
                             var it = new CafeBillItem();
                             it.Name = r["ItemName"].ToString();
+                            string inst = r["Instructions"]?.ToString()?.Trim();
+                            if (!string.IsNullOrEmpty(inst))
+                            {
+                                it.Name += $" [{inst}]";
+                            }
                             it.Qty = Convert.ToInt32(r["Quantity"]);
                             d.Items.Add(it);
                         }

@@ -6,7 +6,7 @@ using System.Data.SqlClient;
 
 namespace MeroDokan
 {
-    public class PurchaseControl : UserControl
+    public class PurchaseControl : UserControl, IFocusableControl
     {
         private ComboBox comboSupplier;
         private TextBox txtBarcode;
@@ -29,7 +29,21 @@ namespace MeroDokan
             InitializeComponent();
             LoadDropdownData();
             InitializeCart();
-            this.Load += (s, e) => txtBarcode.Focus();
+            this.Load += (s, e) => FocusDefaultControl();
+            this.VisibleChanged += (s, e) => { if (this.Visible) FocusDefaultControl(); };
+        }
+
+        public void FocusDefaultControl()
+        {
+            try
+            {
+                if (txtBarcode != null && !txtBarcode.IsDisposed && txtBarcode.Visible)
+                {
+                    txtBarcode.Focus();
+                    txtBarcode.SelectAll();
+                }
+            }
+            catch { }
         }
 
         private void InitializeComponent()

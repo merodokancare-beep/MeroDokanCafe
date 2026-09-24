@@ -1,5 +1,6 @@
 D:\Bhawani Works\Project All\MeroDokanCafe\publish\app_icon.ico
 D:\Bhawani Works\Project All\MeroDokanCafe\publish\dbconfig.txt
+D:\Bhawani Works\Project All\MeroDokanCafe\publish\Assets\logo.jpeg
 D:\Bhawani Works\Project All\MeroDokanCafe\publish\Assets\logo.jpg
 D:\Bhawani Works\Project All\MeroDokanCafe\publish\Assets\logo.png
 D:\Bhawani Works\Project All\MeroDokanCafe\publish\Assets\logo.svg

@@ -20,6 +20,7 @@ namespace MeroDokan
         public VoidKotDialog(string itemName = null, int qty = 1)
         {
             InitializeComponent(itemName, qty);
+            this.Shown += (s, e) => { cmbReason?.Focus(); };
         }
 
         private void InitializeComponent(string itemName, int qty)

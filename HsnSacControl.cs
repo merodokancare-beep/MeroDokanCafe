@@ -6,7 +6,7 @@ using System.Data.SqlClient;
 
 namespace MeroDokan
 {
-    public class HsnSacControl : UserControl
+    public class HsnSacControl : UserControl, IFocusableControl
     {
         // Entry Controls
         private ComboBox comboType;
@@ -38,7 +38,21 @@ namespace MeroDokan
         {
             InitializeComponent();
             LoadHsnSacData();
-            this.Load += (s, e) => txtCode.Focus();
+            this.Load += (s, e) => FocusDefaultControl();
+            this.VisibleChanged += (s, e) => { if (this.Visible) FocusDefaultControl(); };
+        }
+
+        public void FocusDefaultControl()
+        {
+            try
+            {
+                if (txtCode != null && !txtCode.IsDisposed && txtCode.Visible)
+                {
+                    txtCode.Focus();
+                    txtCode.SelectAll();
+                }
+            }
+            catch { }
         }
 
         private void InitializeComponent()

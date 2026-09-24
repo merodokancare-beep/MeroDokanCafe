@@ -6,7 +6,7 @@ using System.Data.SqlClient;
 
 namespace MeroDokan
 {
-    public class StaffControl : UserControl
+    public class StaffControl : UserControl, IFocusableControl
     {
         private TextBox txtName;
         private TextBox txtPhone;
@@ -31,7 +31,21 @@ namespace MeroDokan
             InitializeComponent();
             LoadRolesDropdown();
             LoadStaff();
-            this.Load += (s, e) => txtName.Focus();
+            this.Load += (s, e) => FocusDefaultControl();
+            this.VisibleChanged += (s, e) => { if (this.Visible) FocusDefaultControl(); };
+        }
+
+        public void FocusDefaultControl()
+        {
+            try
+            {
+                if (txtName != null && !txtName.IsDisposed && txtName.Visible)
+                {
+                    txtName.Focus();
+                    txtName.SelectAll();
+                }
+            }
+            catch { }
         }
 
         private void InitializeComponent()

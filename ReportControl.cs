@@ -9,7 +9,7 @@ using System.Data.SqlClient;
 
 namespace MeroDokan
 {
-    public class ReportControl : UserControl
+    public class ReportControl : UserControl, IFocusableControl
     {
         private FlowLayoutPanel tabHeaderPanel;
         private Panel tabContentPanel;
@@ -184,12 +184,21 @@ namespace MeroDokan
             LoadStylistJobsReport();
             LoadVoidKotsReport();
 
-            this.Load += (s, e) => {
-                if (txtSalesSearch != null)
+            this.Load += (s, e) => FocusDefaultControl();
+            this.VisibleChanged += (s, e) => { if (this.Visible) FocusDefaultControl(); };
+        }
+
+        public void FocusDefaultControl()
+        {
+            try
+            {
+                if (txtSalesSearch != null && !txtSalesSearch.IsDisposed && txtSalesSearch.Visible)
                 {
                     txtSalesSearch.Focus();
+                    txtSalesSearch.SelectAll();
                 }
-            };
+            }
+            catch { }
         }
 
         private void InitializeComponent()

@@ -30,6 +30,10 @@ namespace MeroDokan
         {
             InitializeComponent();
             this.Load += (s, e) => txtPassword.Focus();
+            this.Shown += (s, e) => {
+                txtPassword?.Focus();
+                txtPassword?.SelectAll();
+            };
         }
 
         private void InitializeComponent()

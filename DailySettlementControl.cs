@@ -6,7 +6,7 @@ using System.Data.SqlClient;
 
 namespace MeroDokan
 {
-    public class DailySettlementControl : UserControl
+    public class DailySettlementControl : UserControl, IFocusableControl
     {
         private DateTimePicker dtpSettlementDate;
         private Button btnRefresh;
@@ -18,7 +18,6 @@ namespace MeroDokan
         private Label lblOpeningCashText;
         private Label lblCardPayment;
         private Label lblQRPayment;
-        private Label lblTotalReturn;
         private Label lblExpectedCash;
         private TextBox txtActualCash;
         private TextBox txtRemarks;
@@ -61,6 +60,21 @@ namespace MeroDokan
             LoadOpeningCash();
             LoadTodayMetrics();
             LoadHistory();
+            this.Load += (s, e) => FocusDefaultControl();
+            this.VisibleChanged += (s, e) => { if (this.Visible) FocusDefaultControl(); };
+        }
+
+        public void FocusDefaultControl()
+        {
+            try
+            {
+                if (txtActualCash != null && !txtActualCash.IsDisposed && txtActualCash.Visible)
+                {
+                    txtActualCash.Focus();
+                    txtActualCash.SelectAll();
+                }
+            }
+            catch { }
         }
 
         private void InitializeComponent()
@@ -215,32 +229,17 @@ namespace MeroDokan
             Theme.StyleLabel(lblQRPayment, Theme.TextLight, Theme.BoldFont);
             cardMain.Controls.Add(lblQRPayment);
 
-            // 6. Total Return / Refunds
-            Label lblReturnTitle = new Label();
-            lblReturnTitle.Text = "Total Return:";
-            lblReturnTitle.Location = new Point(20, 192);
-            lblReturnTitle.AutoSize = true;
-            Theme.StyleLabel(lblReturnTitle, Theme.TextLight, Theme.MainFont);
-            cardMain.Controls.Add(lblReturnTitle);
-
-            lblTotalReturn = new Label();
-            lblTotalReturn.Text = "Rs. 0.00";
-            lblTotalReturn.Location = new Point(280, 192);
-            lblTotalReturn.AutoSize = true;
-            Theme.StyleLabel(lblTotalReturn, Theme.Danger, Theme.BoldFont);
-            cardMain.Controls.Add(lblTotalReturn);
-
-            // 6b. Void / Cancelled KOTs
+            // 6. Void / Cancelled KOTs
             Label lblVoidTitle = new Label();
             lblVoidTitle.Text = "Void / Cancelled:";
-            lblVoidTitle.Location = new Point(20, 220);
+            lblVoidTitle.Location = new Point(20, 195);
             lblVoidTitle.AutoSize = true;
             Theme.StyleLabel(lblVoidTitle, Theme.TextLight, Theme.MainFont);
             cardMain.Controls.Add(lblVoidTitle);
 
             lblVoidToday = new Label();
             lblVoidToday.Text = "Rs. 0.00";
-            lblVoidToday.Location = new Point(280, 220);
+            lblVoidToday.Location = new Point(280, 195);
             lblVoidToday.AutoSize = true;
             Theme.StyleLabel(lblVoidToday, Color.FromArgb(248, 113, 113), Theme.BoldFont);
             cardMain.Controls.Add(lblVoidToday);
@@ -248,14 +247,14 @@ namespace MeroDokan
             // 7. Total Cash in Drawer
             Label lblExpectedTitle = new Label();
             lblExpectedTitle.Text = "Total Cash in Drawer:";
-            lblExpectedTitle.Location = new Point(20, 252);
+            lblExpectedTitle.Location = new Point(20, 230);
             lblExpectedTitle.AutoSize = true;
             Theme.StyleLabel(lblExpectedTitle, Theme.TextLight, Theme.BoldFont);
             cardMain.Controls.Add(lblExpectedTitle);
 
             lblExpectedCash = new Label();
             lblExpectedCash.Text = "Rs. 0.00";
-            lblExpectedCash.Location = new Point(280, 252);
+            lblExpectedCash.Location = new Point(280, 230);
             lblExpectedCash.AutoSize = true;
             lblExpectedCash.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
             Theme.StyleLabel(lblExpectedCash, Theme.Success, lblExpectedCash.Font);
@@ -553,7 +552,6 @@ namespace MeroDokan
                 lblPrevDueRepayments.Text = $"Rs. {prevDueRepayments:N2}";
                 lblCardPayment.Text = $"Rs. {totalCardPayment:N2}";
                 lblQRPayment.Text = $"Rs. {totalQRPayment:N2}";
-                lblTotalReturn.Text = $"Rs. {totalReturns:N2}";
                 if (lblVoidToday != null) lblVoidToday.Text = $"Rs. {voidAmountToday:N2}";
 
                 UpdateCalculations();
@@ -754,7 +752,6 @@ namespace MeroDokan
                                s.DueCollections as [Dues Collections],
                                ISNULL(s.CardSales, 0.00) as [Card Payment],
                                ISNULL(s.QRSales, ISNULL(s.CardQRSales, 0.00) - ISNULL(s.CardSales, 0.00)) as [QR / UPI Payment],
-                               s.Refunds as [Cash Refunds],
                                ISNULL(s.VoidAmount, ISNULL((
                                    SELECT SUM(kd.Amount)
                                    FROM KOTDetails kd
@@ -783,7 +780,6 @@ namespace MeroDokan
                         if (gridHistory.Columns["Dues Collections"] != null) gridHistory.Columns["Dues Collections"].DefaultCellStyle.Format = "N2";
                         if (gridHistory.Columns["Card Payment"] != null) gridHistory.Columns["Card Payment"].DefaultCellStyle.Format = "N2";
                         if (gridHistory.Columns["QR / UPI Payment"] != null) gridHistory.Columns["QR / UPI Payment"].DefaultCellStyle.Format = "N2";
-                        if (gridHistory.Columns["Cash Refunds"] != null) gridHistory.Columns["Cash Refunds"].DefaultCellStyle.Format = "N2";
                         if (gridHistory.Columns["Void / Cancelled"] != null)
                         {
                             gridHistory.Columns["Void / Cancelled"].DefaultCellStyle.Format = "N2";
@@ -795,17 +791,16 @@ namespace MeroDokan
 
                         if (gridHistory.Columns["Date"] != null) gridHistory.Columns["Date"].FillWeight = 100;
                         if (gridHistory.Columns["Opening Cash"] != null) gridHistory.Columns["Opening Cash"].FillWeight = 80;
-                        if (gridHistory.Columns["Cash Sales"] != null) gridHistory.Columns["Cash Sales"].FillWeight = 85;
-                        if (gridHistory.Columns["Dues Collections"] != null) gridHistory.Columns["Dues Collections"].FillWeight = 85;
-                        if (gridHistory.Columns["Card Payment"] != null) gridHistory.Columns["Card Payment"].FillWeight = 90;
-                        if (gridHistory.Columns["QR / UPI Payment"] != null) gridHistory.Columns["QR / UPI Payment"].FillWeight = 95;
-                        if (gridHistory.Columns["Cash Refunds"] != null) gridHistory.Columns["Cash Refunds"].FillWeight = 85;
-                        if (gridHistory.Columns["Void / Cancelled"] != null) gridHistory.Columns["Void / Cancelled"].FillWeight = 85;
-                        if (gridHistory.Columns["Expected Cash"] != null) gridHistory.Columns["Expected Cash"].FillWeight = 90;
-                        if (gridHistory.Columns["Actual Cash"] != null) gridHistory.Columns["Actual Cash"].FillWeight = 90;
-                        if (gridHistory.Columns["Variance"] != null) gridHistory.Columns["Variance"].FillWeight = 80;
-                        if (gridHistory.Columns["Settled By"] != null) gridHistory.Columns["Settled By"].FillWeight = 95;
-                        if (gridHistory.Columns["Remarks"] != null) gridHistory.Columns["Remarks"].FillWeight = 140;
+                        if (gridHistory.Columns["Cash Sales"] != null) gridHistory.Columns["Cash Sales"].FillWeight = 90;
+                        if (gridHistory.Columns["Dues Collections"] != null) gridHistory.Columns["Dues Collections"].FillWeight = 90;
+                        if (gridHistory.Columns["Card Payment"] != null) gridHistory.Columns["Card Payment"].FillWeight = 95;
+                        if (gridHistory.Columns["QR / UPI Payment"] != null) gridHistory.Columns["QR / UPI Payment"].FillWeight = 100;
+                        if (gridHistory.Columns["Void / Cancelled"] != null) gridHistory.Columns["Void / Cancelled"].FillWeight = 95;
+                        if (gridHistory.Columns["Expected Cash"] != null) gridHistory.Columns["Expected Cash"].FillWeight = 95;
+                        if (gridHistory.Columns["Actual Cash"] != null) gridHistory.Columns["Actual Cash"].FillWeight = 95;
+                        if (gridHistory.Columns["Variance"] != null) gridHistory.Columns["Variance"].FillWeight = 85;
+                        if (gridHistory.Columns["Settled By"] != null) gridHistory.Columns["Settled By"].FillWeight = 100;
+                        if (gridHistory.Columns["Remarks"] != null) gridHistory.Columns["Remarks"].FillWeight = 150;
                     }
                 }
             }

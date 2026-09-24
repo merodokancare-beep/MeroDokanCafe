@@ -6,7 +6,7 @@ using System.Data.SqlClient;
 
 namespace MeroDokan
 {
-    public class StockLedgerControl : UserControl
+    public class StockLedgerControl : UserControl, IFocusableControl
     {
         // Header Tabs
         private Panel tabHeaderPanel;
@@ -38,12 +38,21 @@ namespace MeroDokan
             LoadLedger();
             LoadItemwiseSales();
 
-            this.Load += (s, e) => {
-                if (txtSearch != null)
+            this.Load += (s, e) => FocusDefaultControl();
+            this.VisibleChanged += (s, e) => { if (this.Visible) FocusDefaultControl(); };
+        }
+
+        public void FocusDefaultControl()
+        {
+            try
+            {
+                if (txtSearch != null && !txtSearch.IsDisposed && txtSearch.Visible)
                 {
                     txtSearch.Focus();
+                    txtSearch.SelectAll();
                 }
-            };
+            }
+            catch { }
         }
 
         private void InitializeComponent()

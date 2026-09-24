@@ -8,7 +8,7 @@ using System.Data.SqlClient;
 
 namespace MeroDokan
 {
-    public class TableFloorControl : UserControl
+    public class TableFloorControl : UserControl, IFocusableControl
     {
         private Panel topHeaderPanel;
         private FlowLayoutPanel modeTabsPanel;
@@ -77,6 +77,17 @@ namespace MeroDokan
             refreshTimer.Interval = 4000;
             refreshTimer.Tick += (s, e) => LoadTableCards();
             refreshTimer.Start();
+
+            this.VisibleChanged += (s, e) => { if (this.Visible) FocusDefaultControl(); };
+        }
+
+        public void FocusDefaultControl()
+        {
+            try
+            {
+                tableGridPanel?.Focus();
+            }
+            catch { }
         }
 
         protected override void Dispose(bool disposing)
@@ -408,10 +419,23 @@ namespace MeroDokan
 
                     using (SqlCommand cmd = new SqlCommand(@"
                         SELECT 
-                            ISNULL(SUM(GrandTotal), 0) AS DaySales,
-                            ISNULL(SUM(DueAmount), 0) AS UnsettledSales
-                        FROM Sales 
-                        WHERE CAST(SaleDate AS DATE) = CAST(GETDATE() AS DATE)", conn))
+                            (SELECT ISNULL(SUM(GrandTotal), 0) 
+                             FROM Sales 
+                             WHERE CAST(SaleDate AS DATE) = CAST(GETDATE() AS DATE)) AS DaySales,
+                            (
+                                ISNULL((
+                                    SELECT SUM(kd.Amount)
+                                    FROM KOTMaster k
+                                    INNER JOIN KOTDetails kd ON k.Id = kd.KOTId
+                                    WHERE k.Status IN ('Active', 'Served', 'Printed') AND kd.IsVoided = 0
+                                ), 0)
+                                +
+                                ISNULL((
+                                    SELECT SUM(DueAmount)
+                                    FROM Sales 
+                                    WHERE CAST(SaleDate AS DATE) = CAST(GETDATE() AS DATE) AND DueAmount > 0
+                                ), 0)
+                            ) AS UnsettledSales", conn))
                     {
                         using (SqlDataReader r = cmd.ExecuteReader())
                         {

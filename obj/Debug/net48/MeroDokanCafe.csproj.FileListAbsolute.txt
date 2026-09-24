@@ -20,3 +20,4 @@ D:\Bhawani Works\Project All\MeroDokanCafe\obj\Debug\net48\MeroDokanCafe.sourcel
 D:\Bhawani Works\Project All\MeroDokanCafe\obj\Debug\net48\MeroDoka.971D2432.Up2Date
 D:\Bhawani Works\Project All\MeroDokanCafe\obj\Debug\net48\MeroDokanCafe.exe
 D:\Bhawani Works\Project All\MeroDokanCafe\obj\Debug\net48\MeroDokanCafe.pdb
+D:\Bhawani Works\Project All\MeroDokanCafe\bin\Debug\net48\Assets\logo.jpeg

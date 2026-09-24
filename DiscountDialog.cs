@@ -30,6 +30,14 @@ namespace MeroDokan
             InitializeComponent();
             SetInitialValues(currentDiscount, currentReason);
             Recalculate();
+
+            this.Shown += (s, e) => {
+                if (txtValue != null && txtValue.Visible)
+                {
+                    txtValue.Focus();
+                    txtValue.SelectAll();
+                }
+            };
         }
 
         private void InitializeComponent()

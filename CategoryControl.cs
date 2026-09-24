@@ -6,7 +6,7 @@ using System.Data.SqlClient;
 
 namespace MeroDokan
 {
-    public class CategoryControl : UserControl
+    public class CategoryControl : UserControl, IFocusableControl
     {
         // Entry Form Controls
         private TextBox txtName;
@@ -36,7 +36,21 @@ namespace MeroDokan
         {
             InitializeComponent();
             LoadCategories();
-            this.Load += (s, e) => txtName.Focus();
+            this.Load += (s, e) => FocusDefaultControl();
+            this.VisibleChanged += (s, e) => { if (this.Visible) FocusDefaultControl(); };
+        }
+
+        public void FocusDefaultControl()
+        {
+            try
+            {
+                if (txtName != null && !txtName.IsDisposed && txtName.Visible)
+                {
+                    txtName.Focus();
+                    txtName.SelectAll();
+                }
+            }
+            catch { }
         }
 
         private void InitializeComponent()
@@ -590,6 +604,7 @@ namespace MeroDokan
                     }
                 }
 
+                SalesBillingControl.InvalidateMenuCache();
                 ResetForm();
                 FilterCategories();
             }
@@ -629,6 +644,7 @@ namespace MeroDokan
                             cmd.ExecuteNonQuery();
                         }
                     }
+                    SalesBillingControl.InvalidateMenuCache();
                     ResetForm();
                     FilterCategories();
                 }

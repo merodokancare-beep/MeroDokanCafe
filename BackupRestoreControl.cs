@@ -8,7 +8,7 @@ using System.Net.NetworkInformation;
 
 namespace MeroDokan
 {
-    public class BackupRestoreControl : UserControl
+    public class BackupRestoreControl : UserControl, IFocusableControl
     {
         private Button btnBackup;
         private Button btnRestore;
@@ -22,6 +22,25 @@ namespace MeroDokan
         {
             InitializeComponent();
             LoadBackupSettings();
+            this.Load += (s, e) => FocusDefaultControl();
+            this.VisibleChanged += (s, e) => { if (this.Visible) FocusDefaultControl(); };
+        }
+
+        public void FocusDefaultControl()
+        {
+            try
+            {
+                if (btnBackup != null && !btnBackup.IsDisposed && btnBackup.Visible)
+                {
+                    btnBackup.Focus();
+                }
+                else if (txtBackupPath != null && !txtBackupPath.IsDisposed && txtBackupPath.Visible)
+                {
+                    txtBackupPath.Focus();
+                    txtBackupPath.SelectAll();
+                }
+            }
+            catch { }
         }
 
         private void LoadBackupSettings()

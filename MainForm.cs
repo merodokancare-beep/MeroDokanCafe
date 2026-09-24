@@ -229,9 +229,8 @@ namespace MeroDokan
             btnTables.Click += (s, e) => {
                 var floorCtrl = new TableFloorControl();
                 floorCtrl.OnTableSelected += (tblNum, orderType) => {
-                    var posCtrl = new SalesBillingControl();
+                    var posCtrl = new SalesBillingControl(tblNum, orderType);
                     posCtrl.OnNavigateToFloor += () => btnTables.PerformClick();
-                    posCtrl.LoadTableOrder(tblNum, orderType);
                     ShowView(posCtrl, btnPOS, $"POS Billing - Table {tblNum}");
                 };
                 ShowView(floorCtrl, btnTables, "Floor & Table Management");
@@ -718,6 +717,16 @@ namespace MeroDokan
             mainContentPanel.Controls.Add(view);
             view.BringToFront();
             RefreshLiveOrderCounts();
+
+            if (view is IFocusableControl focusable)
+            {
+                if (this.IsHandleCreated)
+                {
+                    this.BeginInvoke((MethodInvoker)(() => {
+                        try { focusable.FocusDefaultControl(); } catch { }
+                    }));
+                }
+            }
         }
 
         private void ToggleSidebar()
@@ -1102,9 +1111,8 @@ namespace MeroDokan
             {
                 var floorCtrl = new TableFloorControl(mode);
                 floorCtrl.OnTableSelected += (tblNum, orderType) => {
-                    var posCtrl = new SalesBillingControl();
+                    var posCtrl = new SalesBillingControl(tblNum, orderType);
                     posCtrl.OnNavigateToFloor += () => btnTables.PerformClick();
-                    posCtrl.LoadTableOrder(tblNum, orderType);
                     ShowView(posCtrl, btnPOS, $"POS Billing - Table {tblNum}");
                 };
                 ShowView(floorCtrl, btnTables, "Floor & Table Management");

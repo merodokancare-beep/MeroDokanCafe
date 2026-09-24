@@ -6,7 +6,7 @@ using System.Data.SqlClient;
 
 namespace MeroDokan
 {
-    public class SalesReturnControl : UserControl
+    public class SalesReturnControl : UserControl, IFocusableControl
     {
         private TextBox txtInvoiceSearch;
         private Button btnSearch;
@@ -28,7 +28,21 @@ namespace MeroDokan
         {
             InitializeComponent();
             InitializeReturnTable();
-            this.Load += (s, e) => txtInvoiceSearch.Focus();
+            this.Load += (s, e) => FocusDefaultControl();
+            this.VisibleChanged += (s, e) => { if (this.Visible) FocusDefaultControl(); };
+        }
+
+        public void FocusDefaultControl()
+        {
+            try
+            {
+                if (txtInvoiceSearch != null && !txtInvoiceSearch.IsDisposed && txtInvoiceSearch.Visible)
+                {
+                    txtInvoiceSearch.Focus();
+                    txtInvoiceSearch.SelectAll();
+                }
+            }
+            catch { }
         }
 
         private void InitializeComponent()

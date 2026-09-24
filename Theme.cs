@@ -800,5 +800,12 @@ namespace MeroDokan
                 g.DrawString(text, f, bText, rect, sf);
             }
         }
+        public static void SetDoubleBuffered(Control c)
+        {
+            if (SystemInformation.TerminalServerSession || c == null) return;
+            System.Reflection.PropertyInfo p = typeof(Control).GetProperty("DoubleBuffered",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            p?.SetValue(c, true, null);
+        }
     }
 }

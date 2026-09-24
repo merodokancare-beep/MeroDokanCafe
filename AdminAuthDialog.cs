@@ -137,6 +137,19 @@ namespace MeroDokan
             {
                 this.ActiveControl = txtUsername;
             }
+
+            this.Shown += (s, e) => {
+                if (!string.IsNullOrWhiteSpace(txtUsername.Text))
+                {
+                    txtPassword?.Focus();
+                    txtPassword?.SelectAll();
+                }
+                else
+                {
+                    txtUsername?.Focus();
+                    txtUsername?.SelectAll();
+                }
+            };
         }
 
         private void BtnAuthorize_Click(object sender, EventArgs e)

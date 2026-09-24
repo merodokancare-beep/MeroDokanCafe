@@ -25,6 +25,10 @@ namespace MeroDokan
             this.KeyPreview = true;
             this.KeyDown += ActivationForm_KeyDown;
             this.Load += (s, e) => txtProductKey.Focus();
+            this.Shown += (s, e) => {
+                txtProductKey?.Focus();
+                txtProductKey?.SelectAll();
+            };
         }
 
         private void ActivationForm_KeyDown(object sender, KeyEventArgs e)

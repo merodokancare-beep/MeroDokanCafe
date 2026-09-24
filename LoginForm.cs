@@ -27,6 +27,18 @@ namespace MeroDokan
             this.KeyPreview = true;
             this.KeyDown += LoginForm_KeyDown;
             this.Load += (s, e) => txtUsername.Focus();
+            this.Shown += (s, e) => {
+                if (string.IsNullOrWhiteSpace(txtUsername.Text))
+                {
+                    txtUsername.Focus();
+                    txtUsername.SelectAll();
+                }
+                else
+                {
+                    txtPassword.Focus();
+                    txtPassword.SelectAll();
+                }
+            };
         }
 
         private void LoginForm_KeyDown(object sender, KeyEventArgs e)

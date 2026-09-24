@@ -60,6 +60,19 @@ namespace MeroDokan
             InitializeComponent();
             ApplyInitialPaymentMethod();
             CalculateChange();
+
+            this.Shown += (s, e) => {
+                if (panelSplit != null && panelSplit.Visible)
+                {
+                    txtSplitCash?.Focus();
+                    txtSplitCash?.SelectAll();
+                }
+                else if (txtPaidAmount != null && txtPaidAmount.Visible)
+                {
+                    txtPaidAmount.Focus();
+                    txtPaidAmount.SelectAll();
+                }
+            };
         }
 
         private void InitializeComponent()

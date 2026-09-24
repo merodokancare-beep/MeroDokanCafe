@@ -7,7 +7,7 @@ using System.Data.SqlClient;
 
 namespace MeroDokan
 {
-    public class ProfileSettingsControl : UserControl
+    public class ProfileSettingsControl : UserControl, IFocusableControl
     {
         private TextBox txtOwnerName;
         private TextBox txtShopName;
@@ -22,6 +22,7 @@ namespace MeroDokan
         private ComboBox comboDefaultBillType;
         private ComboBox comboTaxMode;
         private ComboBox comboDefaultGSTRate;
+        private TextBox txtDefaultPackingCharge;
         private ComboBox comboThemePreset;
         private ComboBox comboFontSize;
         private Panel leftPanel;
@@ -48,7 +49,21 @@ namespace MeroDokan
         {
             InitializeComponent();
             LoadProfileData();
-            this.Load += (s, e) => txtOwnerName.Focus();
+            this.Load += (s, e) => FocusDefaultControl();
+            this.VisibleChanged += (s, e) => { if (this.Visible) FocusDefaultControl(); };
+        }
+
+        public void FocusDefaultControl()
+        {
+            try
+            {
+                if (txtOwnerName != null && !txtOwnerName.IsDisposed && txtOwnerName.Visible)
+                {
+                    txtOwnerName.Focus();
+                    txtOwnerName.SelectAll();
+                }
+            }
+            catch { }
         }
 
         private void InitializeComponent()
@@ -339,15 +354,29 @@ namespace MeroDokan
             rightPanel.Controls.Add(lblDefaultGst);
 
             comboDefaultGSTRate = new ComboBox();
-            comboDefaultGSTRate.Size = new Size(410, 26);
+            comboDefaultGSTRate.Size = new Size(195, 26);
             comboDefaultGSTRate.Location = new Point(15, 172);
             comboDefaultGSTRate.DropDownStyle = ComboBoxStyle.DropDownList;
             comboDefaultGSTRate.BackColor = Theme.Primary;
             comboDefaultGSTRate.ForeColor = Theme.TextLight;
             comboDefaultGSTRate.Font = Theme.MainFont;
-            comboDefaultGSTRate.Items.AddRange(new string[] { "5% GST (Standard Cafe & Restaurant)", "12% GST (Beverages)", "18% GST", "28% GST", "0% (Exempt)" });
+            comboDefaultGSTRate.Items.AddRange(new string[] { "5% GST (Standard)", "12% GST", "18% GST", "28% GST", "0% (Exempt)" });
             comboDefaultGSTRate.SelectedIndex = 0;
             rightPanel.Controls.Add(comboDefaultGSTRate);
+
+            Label lblDefaultPacking = new Label();
+            lblDefaultPacking.Text = "Default Takeaway Packing (₹) *";
+            lblDefaultPacking.Location = new Point(220, 154);
+            lblDefaultPacking.AutoSize = true;
+            Theme.StyleLabel(lblDefaultPacking, Theme.TextLight, Theme.SmallFont);
+            rightPanel.Controls.Add(lblDefaultPacking);
+
+            txtDefaultPackingCharge = new TextBox();
+            txtDefaultPackingCharge.Size = new Size(205, 26);
+            txtDefaultPackingCharge.Location = new Point(220, 172);
+            Theme.StyleTextBox(txtDefaultPackingCharge);
+            txtDefaultPackingCharge.Text = "40.00";
+            rightPanel.Controls.Add(txtDefaultPackingCharge);
 
             // 3. DIGITAL UPI / QR PAYMENT SETTINGS
             Label lblUpiSection = new Label();
@@ -529,6 +558,9 @@ namespace MeroDokan
                                 else if (defGst == 28m) comboDefaultGSTRate.SelectedIndex = 3;
                                 else if (defGst == 0m) comboDefaultGSTRate.SelectedIndex = 4;
                                 else comboDefaultGSTRate.SelectedIndex = 0; // Default 5% for Cafe
+
+                                decimal defPacking = (rdr["DefaultPackingCharge"] != DBNull.Value) ? Convert.ToDecimal(rdr["DefaultPackingCharge"]) : 40.00m;
+                                txtDefaultPackingCharge.Text = defPacking.ToString("0.00");
 
                                 // Digital UPI & QR Code Settings
                                 txtUPIId.Text = (rdr["UPIId"] != DBNull.Value) ? rdr["UPIId"].ToString() : "";
@@ -713,6 +745,10 @@ namespace MeroDokan
                 else if (comboDefaultGSTRate.SelectedIndex == 3) defaultGSTRate = 28.00m;
                 else if (comboDefaultGSTRate.SelectedIndex == 4) defaultGSTRate = 0.00m;
 
+                decimal defaultPacking = 40.00m;
+                if (!decimal.TryParse(txtDefaultPackingCharge?.Text?.Trim(), out defaultPacking))
+                    defaultPacking = 40.00m;
+
                 // Update settings in database
                 using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
                 {
@@ -723,7 +759,7 @@ namespace MeroDokan
                             LogoPath = @logo, ProfilePicPath = @profPic, ThemePreset = @preset, FontSizePreset = @fontSize,
                             BackupFolderPath = @backupFolder, GoogleDriveAddress = @gDriveAddr,
                             StateName = @stName, StateCode = @stCode, IsTaxInclusive = @isTaxInc,
-                            DefaultBillType = @defBill, DefaultGSTRate = @defGst,
+                            DefaultBillType = @defBill, DefaultGSTRate = @defGst, DefaultPackingCharge = @defPacking,
                             UPIId = @upiId, UPIName = @upiName, AutoShowQROnUPI = @autoQR, PrintQROnReceipt = @printQR";
 
                     using (SqlCommand cmd = new SqlCommand(updateSql, conn))
@@ -745,6 +781,7 @@ namespace MeroDokan
                         cmd.Parameters.AddWithValue("@isTaxInc", isTaxInclusive);
                         cmd.Parameters.AddWithValue("@defBill", defaultBillType);
                         cmd.Parameters.AddWithValue("@defGst", defaultGSTRate);
+                        cmd.Parameters.AddWithValue("@defPacking", defaultPacking);
                         cmd.Parameters.AddWithValue("@upiId", string.IsNullOrEmpty(upiId) ? DBNull.Value : (object)upiId);
                         cmd.Parameters.AddWithValue("@upiName", string.IsNullOrEmpty(upiName) ? DBNull.Value : (object)upiName);
                         cmd.Parameters.AddWithValue("@autoQR", autoShowQR);

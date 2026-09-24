@@ -287,6 +287,16 @@ namespace MeroDokan
                     contentHostPanel.Controls.Add(profileCtrl);
                     break;
             }
+
+            if (contentHostPanel.Controls.Count > 0 && contentHostPanel.Controls[0] is IFocusableControl focusable)
+            {
+                if (this.IsHandleCreated)
+                {
+                    this.BeginInvoke((MethodInvoker)(() => {
+                        try { focusable.FocusDefaultControl(); } catch { }
+                    }));
+                }
+            }
         }
 
         private void BuildOverviewView()

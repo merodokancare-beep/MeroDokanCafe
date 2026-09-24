@@ -6,7 +6,7 @@ using System.Data.SqlClient;
 
 namespace MeroDokan
 {
-    public class ProductControl : UserControl
+    public class ProductControl : UserControl, IFocusableControl
     {
         private TextBox txtSearch;
         private DataGridView gridProducts;
@@ -18,7 +18,21 @@ namespace MeroDokan
         {
             InitializeComponent();
             LoadProducts();
-            this.Load += (s, e) => txtSearch.Focus();
+            this.Load += (s, e) => FocusDefaultControl();
+            this.VisibleChanged += (s, e) => { if (this.Visible) FocusDefaultControl(); };
+        }
+
+        public void FocusDefaultControl()
+        {
+            try
+            {
+                if (txtSearch != null && !txtSearch.IsDisposed && txtSearch.Visible)
+                {
+                    txtSearch.Focus();
+                    txtSearch.SelectAll();
+                }
+            }
+            catch { }
         }
 
         private void InitializeComponent()
@@ -202,6 +216,7 @@ namespace MeroDokan
             {
                 if (dlg.ShowDialog() == DialogResult.OK)
                 {
+                    SalesBillingControl.InvalidateMenuCache();
                     LoadProducts();
                 }
             }
@@ -236,20 +251,21 @@ namespace MeroDokan
             if (selectedRow.Cells["Sales Price"]?.Value != null && selectedRow.Cells["Sales Price"].Value != DBNull.Value)
                 decimal.TryParse(selectedRow.Cells["Sales Price"].Value.ToString(), out sales);
 
-            int stock = 0;
+            decimal stock = 0m;
             if (selectedRow.Cells["Qty In Stock"]?.Value != null && selectedRow.Cells["Qty In Stock"].Value != DBNull.Value)
-                int.TryParse(selectedRow.Cells["Qty In Stock"].Value.ToString(), out stock);
+                decimal.TryParse(selectedRow.Cells["Qty In Stock"].Value.ToString(), out stock);
 
-            int minLevel = 5;
+            decimal minLevel = 0m;
             if (selectedRow.Cells["Min Level"]?.Value != null && selectedRow.Cells["Min Level"].Value != DBNull.Value)
-                int.TryParse(selectedRow.Cells["Min Level"].Value.ToString(), out minLevel);
+                decimal.TryParse(selectedRow.Cells["Min Level"].Value.ToString(), out minLevel);
 
             string desc = selectedRow.Cells["Description"]?.Value?.ToString() ?? "";
 
-            using (ProductDialog dlg = new ProductDialog(id, code, hsn, name, category, gstRate, cost, sales, stock, minLevel, desc))
+            using (ProductDialog dlg = new ProductDialog(id, code, hsn, name, category, gstRate, cost, sales, (int)stock, (int)minLevel, desc))
             {
                 if (dlg.ShowDialog() == DialogResult.OK)
                 {
+                    SalesBillingControl.InvalidateMenuCache();
                     LoadProducts();
                 }
             }
@@ -281,6 +297,7 @@ namespace MeroDokan
                             cmd.ExecuteNonQuery();
                         }
                     }
+                    SalesBillingControl.InvalidateMenuCache();
                     LoadProducts();
                 }
                 catch (Exception ex)

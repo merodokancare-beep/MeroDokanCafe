@@ -9,7 +9,7 @@ using System.Data.SqlClient;
 
 namespace MeroDokan
 {
-    public class SalesBillingControl : UserControl
+    public class SalesBillingControl : UserControl, IFocusableControl
     {
         public class ComboBoxItem
         {
@@ -148,11 +148,12 @@ namespace MeroDokan
 
         // Top Bar Controls
         private FlowLayoutPanel subBillsFlow;
-        private Label lblActiveMode;
+        private Button btnActiveMode;
         private ComboBox cmbSteward;
         private Button btnSteward;
         private ContextMenuStrip stewardMenu;
         private Button btnBackToFloor;
+        private Button btnShareTableTop;
         private Button btnShiftTable;
         private Button btnCancelOrder;
         private Button btnModeDining;
@@ -168,10 +169,12 @@ namespace MeroDokan
         private System.Windows.Forms.Timer catScrollTimer;
         private int catScrollSpeed = 0;
         private FlowLayoutPanel productGridPanel;
+        private System.Windows.Forms.Timer searchDebounceTimer;
         private Panel packingChargePanel;
+        private Button btnPack0;
         private Button btnPack10;
-        private Button btnPack40;
-        private Button btnPack70;
+        private Button btnPack20;
+        private Button btnPackDefault;
         private Button btnPackCustom;
         private decimal currentPackingCharge = 0.0m;
 
@@ -208,21 +211,66 @@ namespace MeroDokan
         private decimal currentDiscountAmount = 0.0m;
         private string currentDiscountReason = "";
 
+        // Menu In-Memory Fast Cache
+        public class CachedProduct
+        {
+            public int Id { get; set; }
+            public string Code { get; set; }
+            public string Name { get; set; }
+            public string Category { get; set; }
+            public decimal SalesPrice { get; set; }
+            public decimal GstRate { get; set; }
+            public bool IsVeg { get; set; }
+        }
+
+        private static List<CachedProduct> _cachedProducts = null;
+        private static List<string> _cachedCategories = null;
+        private static List<string> _cachedStewards = null;
+
+        public static void InvalidateMenuCache()
+        {
+            _cachedProducts = null;
+            _cachedCategories = null;
+            _cachedStewards = null;
+        }
+
         // State
-        public string ActiveTableNumber { get; private set; } = "5";
+        public string ActiveTableNumber { get; private set; } = "1";
         public string ActiveOrderType { get; private set; } = "DINING";
         private List<CartItem> cartItems = new List<CartItem>();
         private string selectedCategory = "All";
 
         public event Action OnNavigateToFloor;
 
-        public SalesBillingControl()
+        public SalesBillingControl(string initialTable = "1", string initialOrderType = "DINING")
         {
+            ActiveTableNumber = string.IsNullOrEmpty(initialTable) ? "1" : initialTable;
+            ActiveOrderType = string.IsNullOrEmpty(initialOrderType) ? "DINING" : initialOrderType;
+
             InitializeComponent();
+            Theme.SetDoubleBuffered(productGridPanel);
+            Theme.SetDoubleBuffered(categoryTabsPanel);
+            Theme.SetDoubleBuffered(kotItemsContainer);
+
             LoadStewards();
             LoadCategories();
             LoadProducts();
             LoadTableOrder(ActiveTableNumber, ActiveOrderType);
+            this.Load += (s, e) => FocusDefaultControl();
+            this.VisibleChanged += (s, e) => { if (this.Visible) FocusDefaultControl(); };
+        }
+
+        public void FocusDefaultControl()
+        {
+            try
+            {
+                if (txtSearchItem != null && !txtSearchItem.IsDisposed && txtSearchItem.Visible)
+                {
+                    txtSearchItem.Focus();
+                    txtSearchItem.SelectAll();
+                }
+            }
+            catch { }
         }
 
         public void LoadTableOrder(string tableNum, string orderType = "DINING")
@@ -247,11 +295,20 @@ namespace MeroDokan
                 cmbSteward.SelectedItem = "Direct Counter";
             }
 
-            packingChargePanel.Visible = (ActiveOrderType == "TAKEAWAY");
-            if (ActiveOrderType == "TAKEAWAY" && currentPackingCharge == 0)
+            packingChargePanel.Visible = true;
+            decimal defaultPacking = GetDefaultTakeawayPackingCharge();
+            if (ActiveOrderType == "TAKEAWAY")
             {
-                currentPackingCharge = 40.0m; // Default ₹40 takeaway packing charge
+                if (currentPackingCharge == 0)
+                {
+                    currentPackingCharge = defaultPacking;
+                }
             }
+            else
+            {
+                currentPackingCharge = 0.0m;
+            }
+            UpdatePackChargeButtonHighlights();
 
             // Load Existing Active KOT Items for this table
             cartItems.Clear();
@@ -337,6 +394,12 @@ namespace MeroDokan
 
             UpdateSubBillsHeader();
             RefreshOrderCartView();
+            if (this.IsHandleCreated)
+            {
+                this.BeginInvoke((MethodInvoker)(() => {
+                    try { FocusDefaultControl(); } catch { }
+                }));
+            }
         }
 
         private void UpdateSubBillsHeader()
@@ -347,12 +410,20 @@ namespace MeroDokan
 
             if (ActiveOrderType != "DINING")
             {
-                lblActiveMode.Visible = true;
-                lblActiveMode.Text = ActiveOrderType == "TAKEAWAY" ? $"🛍️ TAKE AWAY (Token {ActiveTableNumber})" : $"🛵 DELIVERY (Order {ActiveTableNumber})";
-                subBillsFlow.Controls.Add(lblActiveMode);
+                btnActiveMode.Visible = true;
+                btnActiveMode.Text = ActiveOrderType == "TAKEAWAY" ? $"🛍️ TAKE AWAY (Token {ActiveTableNumber})" : $"🛵 DELIVERY (Order {ActiveTableNumber})";
+                btnActiveMode.BackColor = ActiveOrderType == "TAKEAWAY" ? Theme.Accent : Color.FromArgb(249, 115, 22);
+                btnActiveMode.ForeColor = Color.White;
+                btnActiveMode.FlatAppearance.BorderSize = 0;
+                if (btnShareTableTop != null) btnShareTableTop.Visible = false;
+                if (btnShiftTable != null) btnShiftTable.Visible = false;
+                subBillsFlow.Controls.Add(btnActiveMode);
                 subBillsFlow.ResumeLayout();
                 return;
             }
+
+            if (btnShareTableTop != null) btnShareTableTop.Visible = true;
+            if (btnShiftTable != null) btnShiftTable.Visible = true;
 
             string baseNum = TableHelper.GetBaseTableNumber(ActiveTableNumber);
             List<SubTableTabInfo> subTables = new List<SubTableTabInfo>();
@@ -397,7 +468,7 @@ namespace MeroDokan
 
             if (subTables.Count > 1 || ActiveTableNumber.Contains("-"))
             {
-                lblActiveMode.Visible = false;
+                btnActiveMode.Visible = false;
 
                 foreach (var sub in subTables)
                 {
@@ -412,6 +483,7 @@ namespace MeroDokan
                         Text = btnLabel,
                         AutoSize = true,
                         Height = 36,
+                        MinimumSize = new Size(80, 36),
                         Padding = new Padding(8, 0, 8, 0),
                         Font = new Font("Segoe UI", 9F, FontStyle.Bold),
                         FlatStyle = FlatStyle.Flat,
@@ -432,9 +504,13 @@ namespace MeroDokan
             }
             else
             {
-                lblActiveMode.Visible = true;
-                lblActiveMode.Text = $"🍽️ Table {ActiveTableNumber}";
-                subBillsFlow.Controls.Add(lblActiveMode);
+                btnActiveMode.Visible = true;
+                decimal curAmt = (subTables.Count > 0) ? subTables[0].Amount : 0;
+                btnActiveMode.Text = curAmt > 0 ? $"🍽️ Table {ActiveTableNumber} • ₹{curAmt:0}" : $"🍽️ Table {ActiveTableNumber}";
+                btnActiveMode.BackColor = Theme.Accent;
+                btnActiveMode.ForeColor = Color.White;
+                btnActiveMode.FlatAppearance.BorderSize = 0;
+                subBillsFlow.Controls.Add(btnActiveMode);
             }
 
             subBillsFlow.ResumeLayout();
@@ -484,6 +560,7 @@ namespace MeroDokan
                 Text = "⬅ Tables",
                 AutoSize = true,
                 Height = 36,
+                MinimumSize = new Size(80, 36),
                 Padding = new Padding(8, 0, 8, 0),
                 BackColor = Color.FromArgb(30, 41, 59),
                 ForeColor = Theme.TextWhite,
@@ -504,33 +581,35 @@ namespace MeroDokan
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
                 BackColor = Color.Transparent,
+                Padding = new Padding(0),
                 Margin = new Padding(0)
             };
             topLeftFlow.Controls.Add(subBillsFlow);
 
-            lblActiveMode = new Label
+            btnActiveMode = new Button
             {
-                Text = "🍽️ Table 5",
-                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
-                ForeColor = Theme.Accent,
-                BackColor = Color.FromArgb(245, 158, 11, 20),
+                Text = $"🍽️ Table {ActiveTableNumber}",
+                Font = Theme.BoldFont,
+                ForeColor = Color.White,
+                BackColor = Theme.Accent,
                 Height = 36,
-                Padding = new Padding(10, 8, 10, 0),
+                MinimumSize = new Size(80, 36),
+                Padding = new Padding(10, 0, 10, 0),
                 AutoSize = true,
-                Margin = new Padding(0, 2, 6, 0)
+                Margin = new Padding(0, 2, 6, 0),
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand
             };
-            lblActiveMode.Paint += (s, e) => {
-                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                using (GraphicsPath path = Theme.GetRoundedPath(new Rectangle(0, 0, lblActiveMode.Width - 1, lblActiveMode.Height - 1), 6))
-                using (Pen p = new Pen(Theme.Accent, 1))
-                    e.Graphics.DrawPath(p, path);
-            };
+            btnActiveMode.FlatAppearance.BorderSize = 0;
+            btnActiveMode.FlatAppearance.MouseOverBackColor = Theme.AccentHover;
+            btnActiveMode.Click += (s, e) => OnNavigateToFloor?.Invoke();
 
-            Button btnShareTableTop = new Button
+            btnShareTableTop = new Button
             {
                 Text = "🪑 Share",
                 AutoSize = true,
                 Height = 36,
+                MinimumSize = new Size(80, 36),
                 Padding = new Padding(8, 0, 8, 0),
                 BackColor = Color.FromArgb(109, 40, 217), // Violet
                 ForeColor = Color.White,
@@ -556,6 +635,7 @@ namespace MeroDokan
                 Text = "🔁 Shift",
                 AutoSize = true,
                 Height = 36,
+                MinimumSize = new Size(80, 36),
                 Padding = new Padding(8, 0, 8, 0),
                 BackColor = Color.FromArgb(30, 41, 59),
                 ForeColor = Theme.TextLight,
@@ -852,7 +932,15 @@ namespace MeroDokan
                 BorderStyle = BorderStyle.None
             };
             Win7Compat.SetPlaceholder(txtSearchItem, "Type dish name or barcode to filter...");
-            txtSearchItem.TextChanged += (s, e) => LoadProducts(txtSearchItem.Text.Trim(), selectedCategory);
+            searchDebounceTimer = new System.Windows.Forms.Timer { Interval = 40 };
+            searchDebounceTimer.Tick += (s, e) => {
+                searchDebounceTimer.Stop();
+                LoadProducts(txtSearchItem.Text.Trim(), selectedCategory);
+            };
+            txtSearchItem.TextChanged += (s, e) => {
+                searchDebounceTimer.Stop();
+                searchDebounceTimer.Start();
+            };
             txtWrapper.Controls.Add(txtSearchItem);
             searchBar.Controls.Add(txtWrapper);
 
@@ -861,7 +949,7 @@ namespace MeroDokan
             qtyPanel.SendToBack();
             txtWrapper.BringToFront();
 
-            // 2. Takeaway Packaging Charges Bar (Visible in Takeaway mode)
+            // 2. Packaging Charges Bar (Visible in Takeaway & Dining modes)
             packingChargePanel = new FlowLayoutPanel
             {
                 Dock = DockStyle.Top,
@@ -871,7 +959,7 @@ namespace MeroDokan
                 BackColor = Color.FromArgb(20, 30, 48),
                 Padding = new Padding(8, 4, 8, 4),
                 Margin = new Padding(0, 4, 0, 4),
-                Visible = false
+                Visible = true
             };
 
             Label lblPack = new Label
@@ -884,14 +972,32 @@ namespace MeroDokan
             };
             packingChargePanel.Controls.Add(lblPack);
 
+            decimal defPack = GetDefaultTakeawayPackingCharge();
+            btnPack0 = CreatePackChargeBtn("No Pack (₹0)", 0);
             btnPack10 = CreatePackChargeBtn("₹10", 10);
-            btnPack40 = CreatePackChargeBtn("₹40 (Standard)", 40);
-            btnPack70 = CreatePackChargeBtn("₹70 (Full Box)", 70);
-            btnPackCustom = CreatePackChargeBtn("No Pack (₹0)", 0);
+            btnPack20 = CreatePackChargeBtn("₹20", 20);
+            btnPackDefault = CreatePackChargeBtn($"₹{defPack:0} (Standard)", defPack);
 
+            btnPackCustom = new Button
+            {
+                Text = "✏️ Custom...",
+                AutoSize = true,
+                Height = 28,
+                Padding = new Padding(8, 0, 8, 0),
+                Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+                BackColor = Color.FromArgb(30, 41, 59),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                Margin = new Padding(0, 0, 6, 0)
+            };
+            btnPackCustom.FlatAppearance.BorderSize = 0;
+            btnPackCustom.Click += (s, e) => OnBtnPackCustomClick();
+
+            packingChargePanel.Controls.Add(btnPack0);
             packingChargePanel.Controls.Add(btnPack10);
-            packingChargePanel.Controls.Add(btnPack40);
-            packingChargePanel.Controls.Add(btnPack70);
+            packingChargePanel.Controls.Add(btnPack20);
+            packingChargePanel.Controls.Add(btnPackDefault);
             packingChargePanel.Controls.Add(btnPackCustom);
 
             // 3. Category Horizontal Tabs Bar with Smooth Chevrons (NO WHITE NATIVE SCROLLBAR)
@@ -1033,6 +1139,7 @@ namespace MeroDokan
                 BackColor = Color.Transparent,
                 Padding = new Padding(0, 4, 0, 0)
             };
+            Theme.SetDoubleBuffered(productGridPanel);
             productGridPanel.SizeChanged += (s, e) => AdjustProductGridTiles();
             leftCatalogPanel.Controls.Add(productGridPanel);
 
@@ -1054,29 +1161,16 @@ namespace MeroDokan
 
             foreach (Control c in productGridPanel.Controls)
             {
-                if (c is Panel tile)
+                if (c is ProductTile tile)
                 {
-                    tile.Size = new Size(tileW, tileH);
-                    foreach (Control child in tile.Controls)
+                    if (tile.Width != tileW || tile.Height != tileH)
                     {
-                        if (child is Label lbl && lbl.Font.Size >= 9.5F && lbl.ForeColor == Color.White)
-                        {
-                            lbl.Size = new Size(tileW - 20, 38);
-                        }
-                        else if (child is Label lblP && lblP.Font.Size >= 11F)
-                        {
-                            lblP.Location = new Point(10, tileH - 30);
-                        }
-                        else if (child is Label lblAdd && lblAdd.Text == "+ ADD")
-                        {
-                            lblAdd.Location = new Point(tileW - 60, tileH - 30);
-                        }
+                        tile.Size = new Size(tileW, tileH);
                     }
-                    tile.Invalidate();
                 }
             }
 
-            productGridPanel.ResumeLayout();
+            productGridPanel.ResumeLayout(true);
         }
 
         private Button CreatePackChargeBtn(string text, decimal val)
@@ -1084,6 +1178,7 @@ namespace MeroDokan
             Button btn = new Button
             {
                 Text = text,
+                Tag = val,
                 AutoSize = true,
                 Height = 28,
                 Padding = new Padding(8, 0, 8, 0),
@@ -1097,14 +1192,191 @@ namespace MeroDokan
             btn.FlatAppearance.BorderSize = 0;
             btn.Click += (s, e) => {
                 currentPackingCharge = val;
-                foreach (Control c in packingChargePanel.Controls)
-                {
-                    if (c is Button b) b.BackColor = Color.FromArgb(30, 41, 59);
-                }
-                btn.BackColor = Theme.Accent;
+                UpdatePackChargeButtonHighlights();
                 RefreshOrderCartView();
             };
             return btn;
+        }
+
+        private void UpdatePackChargeButtonHighlights()
+        {
+            if (packingChargePanel == null) return;
+            bool matchedPreset = false;
+            foreach (Control c in packingChargePanel.Controls)
+            {
+                if (c is Button b && b.Tag is decimal dVal)
+                {
+                    if (dVal == currentPackingCharge)
+                    {
+                        b.BackColor = Theme.Accent;
+                        matchedPreset = true;
+                    }
+                    else
+                    {
+                        b.BackColor = Color.FromArgb(30, 41, 59);
+                    }
+                }
+            }
+
+            if (btnPackCustom != null)
+            {
+                if (!matchedPreset && currentPackingCharge > 0)
+                {
+                    btnPackCustom.BackColor = Theme.Accent;
+                    btnPackCustom.Text = $"✏️ Custom (₹{currentPackingCharge:0})";
+                }
+                else
+                {
+                    btnPackCustom.BackColor = Color.FromArgb(30, 41, 59);
+                    btnPackCustom.Text = "✏️ Custom...";
+                }
+            }
+        }
+
+        private void OnBtnPackCustomClick()
+        {
+            string prompt = "Enter Packaging Charge (₹):\n\n(Zero tax will be deducted from packaging charge)";
+            string def = currentPackingCharge > 0 ? currentPackingCharge.ToString("0") : "20";
+            string valStr = Microsoft.VisualBasic.Interaction.InputBox(prompt, "Custom Packaging Charge", def);
+            if (!string.IsNullOrWhiteSpace(valStr))
+            {
+                if (decimal.TryParse(valStr.Trim(), out decimal entered) && entered >= 0)
+                {
+                    currentPackingCharge = Math.Round(entered, 2);
+                    UpdatePackChargeButtonHighlights();
+                    RefreshOrderCartView();
+                }
+                else
+                {
+                    MessageBox.Show("Please enter a valid amount.", "Invalid Input", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
+        }
+
+        private decimal GetDefaultTakeawayPackingCharge()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
+                {
+                    conn.Open();
+                    using (SqlCommand cmd = new SqlCommand("SELECT TOP 1 DefaultPackingCharge FROM AppProfile", conn))
+                    {
+                        object obj = cmd.ExecuteScalar();
+                        if (obj != null && obj != DBNull.Value && decimal.TryParse(obj.ToString(), out decimal val))
+                        {
+                            return val;
+                        }
+                    }
+                }
+            }
+            catch { }
+            return 40.00m;
+        }
+
+        private void ShowItemParcelMenu(Button anchor, CartItem item)
+        {
+            ContextMenuStrip menu = new ContextMenuStrip();
+            menu.Renderer = new DarkMenuRenderer();
+
+            // Quick splits if quantity >= 2
+            if (item.Quantity >= 2)
+            {
+                for (int p = 1; p < item.Quantity; p++)
+                {
+                    int eat = item.Quantity - p;
+                    int pack = p;
+                    string label = $"🛍️ {eat} Eat Here, {pack} Parcel";
+                    menu.Items.Add(label, null, (s, e) => {
+                        item.SpecialInstructions = $"{eat} Eat Here, {pack} Parcel";
+                        PromptForSuggestedPackingCharge();
+                        RefreshOrderCartView();
+                    });
+                }
+            }
+
+            menu.Items.Add("🥡 All Parcel (Pack & Carry)", null, (s, e) => {
+                item.SpecialInstructions = "All Parcel (Pack & Carry)";
+                PromptForSuggestedPackingCharge();
+                RefreshOrderCartView();
+            });
+
+            menu.Items.Add("🍽️ Eat Here (Dine-In)", null, (s, e) => {
+                item.SpecialInstructions = "Eat Here (Dine-In)";
+                RefreshOrderCartView();
+            });
+
+            menu.Items.Add(new ToolStripSeparator());
+
+            if (item.Quantity >= 2 && !item.IsCommittedToKot)
+            {
+                menu.Items.Add("✂️ Split Item (1 Eat Here + 1 Parcel)", null, (s, e) => {
+                    item.Quantity -= 1;
+                    item.SpecialInstructions = "1 Eat Here";
+                    cartItems.Add(new CartItem
+                    {
+                        ProductId = item.ProductId,
+                        ItemCode = item.ItemCode,
+                        ItemName = item.ItemName,
+                        Category = item.Category,
+                        UnitPrice = item.UnitPrice,
+                        GstRate = item.GstRate,
+                        Quantity = 1,
+                        SpecialInstructions = "1 Parcel (Carry)",
+                        IsCommittedToKot = false
+                    });
+                    PromptForSuggestedPackingCharge();
+                    RefreshOrderCartView();
+                });
+                menu.Items.Add(new ToolStripSeparator());
+            }
+
+            menu.Items.Add("✏️ Custom Kitchen Instruction...", null, (s, e) => {
+                string input = Microsoft.VisualBasic.Interaction.InputBox(
+                    $"Enter special cooking / parcel instruction for {item.ItemName}:",
+                    "Kitchen / Parcel Note",
+                    item.SpecialInstructions ?? "");
+                if (!string.IsNullOrWhiteSpace(input))
+                {
+                    item.SpecialInstructions = input.Trim();
+                    if (input.IndexOf("pack", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        input.IndexOf("parcel", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        input.IndexOf("carry", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        PromptForSuggestedPackingCharge();
+                    }
+                    RefreshOrderCartView();
+                }
+            });
+
+            if (!string.IsNullOrEmpty(item.SpecialInstructions))
+            {
+                menu.Items.Add("❌ Clear Instruction", null, (s, e) => {
+                    item.SpecialInstructions = null;
+                    RefreshOrderCartView();
+                });
+            }
+
+            menu.Show(anchor, new Point(0, anchor.Height));
+        }
+
+        private void PromptForSuggestedPackingCharge()
+        {
+            if (currentPackingCharge == 0)
+            {
+                DialogResult res = MessageBox.Show(
+                    "You added a parcel / carry instruction to this order.\n\nWould you like to add packaging charges (e.g. ₹10 / ₹20 / Standard)?",
+                    "Add Packaging Charges?",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+                if (res == DialogResult.Yes)
+                {
+                    decimal defPack = GetDefaultTakeawayPackingCharge();
+                    if (defPack <= 0) defPack = 20.0m;
+                    currentPackingCharge = defPack;
+                    UpdatePackChargeButtonHighlights();
+                }
+            }
         }
 
         private void InitializeRightOrderPanel()
@@ -1516,8 +1788,7 @@ namespace MeroDokan
 
         private void RecalculateDiscountFromInputs()
         {
-            decimal totalGross = cartItems.Sum(x => x.LineTotal);
-            if (ActiveOrderType == "TAKEAWAY") totalGross += currentPackingCharge;
+            decimal foodGross = cartItems.Sum(x => x.LineTotal);
 
             string text = txtDiscountVal?.Text?.Trim() ?? "0";
             if (string.IsNullOrEmpty(text)) text = "0";
@@ -1526,11 +1797,11 @@ namespace MeroDokan
             {
                 if (comboDiscountType?.SelectedItem?.ToString() == "%")
                 {
-                    currentDiscountAmount = Math.Round((totalGross * val) / 100m, 2);
+                    currentDiscountAmount = Math.Round((foodGross * val) / 100m, 2);
                 }
                 else
                 {
-                    currentDiscountAmount = Math.Min(totalGross, val);
+                    currentDiscountAmount = Math.Min(foodGross, val);
                 }
             }
             else
@@ -1541,19 +1812,22 @@ namespace MeroDokan
 
         private void UpdateSummaryDisplay()
         {
-            decimal totalGross = cartItems.Sum(x => x.LineTotal);
-            if (ActiveOrderType == "TAKEAWAY") totalGross += currentPackingCharge;
+            decimal foodGross = cartItems.Sum(x => x.LineTotal);
+            decimal discountVal = Math.Min(foodGross, currentDiscountAmount);
+            decimal discountedFood = Math.Max(0, foodGross - discountVal);
 
-            decimal discountVal = Math.Min(totalGross, currentDiscountAmount);
-            decimal discountedGross = Math.Max(0, totalGross - discountVal);
+            // Food tax is calculated on food gross after discount
+            decimal taxableFood = Math.Round(discountedFood / 1.05m, 2);
+            decimal totalGst = discountedFood - taxableFood;
 
-            decimal taxableSubTotal = Math.Round(discountedGross / 1.05m, 2);
-            decimal totalGst = discountedGross - taxableSubTotal;
-            decimal grandTotal = Math.Round(discountedGross, 0);
+            // Zero tax on packaging charges:
+            // Packaging fee is added flat without any tax deduction.
+            decimal totalTaxable = taxableFood + currentPackingCharge;
+            decimal grandTotal = Math.Round(discountedFood + currentPackingCharge, 0);
 
-            if (lblSubTotal != null) lblSubTotal.Text = $"Rs. {totalGross:0.00}";
+            if (lblSubTotal != null) lblSubTotal.Text = $"Rs. {(foodGross + currentPackingCharge):0.00}";
             if (lblDiscount != null) lblDiscount.Text = $"- Rs. {discountVal:0.00}";
-            if (lblTaxableVal != null) lblTaxableVal.Text = $"Rs. {taxableSubTotal:0.00}";
+            if (lblTaxableVal != null) lblTaxableVal.Text = $"Rs. {totalTaxable:0.00}";
             if (lblTax != null) lblTax.Text = $"Rs. {totalGst:0.00}";
             if (lblGrandTotal != null) lblGrandTotal.Text = $"Rs. {grandTotal:0.00}";
             if (btnPayPrint != null) btnPayPrint.Text = $"🖨️  PAY  PRINT ( Rs. {grandTotal:0.00} )";
@@ -1567,10 +1841,9 @@ namespace MeroDokan
                 return;
             }
 
-            decimal grossTotal = cartItems.Sum(x => x.LineTotal);
-            if (ActiveOrderType == "TAKEAWAY") grossTotal += currentPackingCharge;
+            decimal foodGross = cartItems.Sum(x => x.LineTotal);
 
-            using (DiscountDialog dlg = new DiscountDialog(grossTotal, currentDiscountAmount, currentDiscountReason))
+            using (DiscountDialog dlg = new DiscountDialog(foodGross, currentDiscountAmount, currentDiscountReason))
             {
                 if (dlg.ShowDialog() == DialogResult.OK)
                 {
@@ -1661,17 +1934,26 @@ namespace MeroDokan
                 cmbSteward.Items.Clear();
                 cmbSteward.Items.Add("Direct Counter");
 
-                using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
+                if (_cachedStewards == null)
                 {
-                    conn.Open();
-                    using (SqlCommand cmd = new SqlCommand("SELECT Name FROM Staff WHERE IsActive = 1 AND Name <> 'Direct Counter' ORDER BY Name", conn))
-                    using (SqlDataReader r = cmd.ExecuteReader())
+                    _cachedStewards = new List<string>();
+                    using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
                     {
-                        while (r.Read())
+                        conn.Open();
+                        using (SqlCommand cmd = new SqlCommand("SELECT Name FROM Staff WHERE IsActive = 1 AND Name <> 'Direct Counter' ORDER BY Name", conn))
+                        using (SqlDataReader r = cmd.ExecuteReader())
                         {
-                            cmbSteward.Items.Add(r["Name"].ToString());
+                            while (r.Read())
+                            {
+                                _cachedStewards.Add(r["Name"].ToString());
+                            }
                         }
                     }
+                }
+
+                foreach (string s in _cachedStewards)
+                {
+                    cmbSteward.Items.Add(s);
                 }
 
                 if (cmbSteward.Items.Count > 0 && cmbSteward.SelectedIndex < 0)
@@ -1686,25 +1968,36 @@ namespace MeroDokan
         {
             try
             {
+                categoryTabsPanel.SuspendLayout();
                 categoryTabsPanel.Controls.Clear();
 
                 Button btnAll = CreateCategoryTabBtn("All", "All", true);
-                categoryTabsPanel.Controls.Add(btnAll);
+                var catButtons = new List<Control> { btnAll };
 
-                using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
+                if (_cachedCategories == null)
                 {
-                    conn.Open();
-                    using (SqlCommand cmd = new SqlCommand("SELECT Name FROM Categories ORDER BY Name", conn))
-                    using (SqlDataReader r = cmd.ExecuteReader())
+                    _cachedCategories = new List<string>();
+                    using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
                     {
-                        while (r.Read())
+                        conn.Open();
+                        using (SqlCommand cmd = new SqlCommand("SELECT Name FROM Categories ORDER BY Name", conn))
+                        using (SqlDataReader r = cmd.ExecuteReader())
                         {
-                            string cat = r["Name"].ToString();
-                            Button btnCat = CreateCategoryTabBtn(cat, cat, false);
-                            categoryTabsPanel.Controls.Add(btnCat);
+                            while (r.Read())
+                            {
+                                _cachedCategories.Add(r["Name"].ToString());
+                            }
                         }
                     }
                 }
+
+                foreach (string cat in _cachedCategories)
+                {
+                    catButtons.Add(CreateCategoryTabBtn(cat, cat, false));
+                }
+
+                categoryTabsPanel.Controls.AddRange(catButtons.ToArray());
+                categoryTabsPanel.ResumeLayout(true);
             }
             catch { }
         }
@@ -1795,165 +2088,188 @@ namespace MeroDokan
         {
             try
             {
-                productGridPanel.SuspendLayout();
-                productGridPanel.Controls.Clear();
-
-                using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
+                if (_cachedProducts == null)
                 {
-                    conn.Open();
-                    string sql = "SELECT Id, Code, Name, Category, SalesPrice, ISNULL(GSTRate, 5.00) AS GSTRate FROM Products WHERE 1=1";
-                    if (!string.IsNullOrEmpty(query))
+                    _cachedProducts = new List<CachedProduct>();
+                    using (SqlConnection conn = new SqlConnection(DatabaseHelper.ConnectionString))
                     {
-                        sql += " AND (Name LIKE @q OR Code LIKE @q)";
-                    }
-                    if (!string.IsNullOrEmpty(category) && category != "All")
-                    {
-                        sql += " AND Category = @cat";
-                    }
-                    sql += " ORDER BY Name";
-
-                    using (SqlCommand cmd = new SqlCommand(sql, conn))
-                    {
-                        if (!string.IsNullOrEmpty(query)) cmd.Parameters.AddWithValue("@q", "%" + query + "%");
-                        if (!string.IsNullOrEmpty(category) && category != "All") cmd.Parameters.AddWithValue("@cat", category);
-
+                        conn.Open();
+                        string sql = "SELECT Id, Code, Name, Category, SalesPrice, ISNULL(GSTRate, 5.00) AS GSTRate FROM Products ORDER BY Name";
+                        using (SqlCommand cmd = new SqlCommand(sql, conn))
                         using (SqlDataReader r = cmd.ExecuteReader())
                         {
                             while (r.Read())
                             {
-                                int id = Convert.ToInt32(r["Id"]);
-                                string code = r["Code"].ToString();
                                 string name = r["Name"].ToString();
-                                string cat = r["Category"]?.ToString() ?? "";
-                                decimal price = Convert.ToDecimal(r["SalesPrice"]);
-                                decimal gst = Convert.ToDecimal(r["GSTRate"]);
-
-                                Control tile = CreateProductTile(id, code, name, cat, price, gst);
-                                productGridPanel.Controls.Add(tile);
+                                _cachedProducts.Add(new CachedProduct
+                                {
+                                    Id = Convert.ToInt32(r["Id"]),
+                                    Code = r["Code"]?.ToString() ?? "",
+                                    Name = name,
+                                    Category = r["Category"]?.ToString() ?? "",
+                                    SalesPrice = Convert.ToDecimal(r["SalesPrice"]),
+                                    GstRate = Convert.ToDecimal(r["GSTRate"]),
+                                    IsVeg = !name.ToLower().Contains("chicken") && !name.ToLower().Contains("non veg") && !name.ToLower().Contains("egg")
+                                });
                             }
                         }
                     }
                 }
 
-                productGridPanel.ResumeLayout();
-                AdjustProductGridTiles();
+                IEnumerable<CachedProduct> filtered = _cachedProducts;
+                if (!string.IsNullOrEmpty(category) && category != "All")
+                {
+                    filtered = filtered.Where(p => string.Equals(p.Category, category, StringComparison.OrdinalIgnoreCase));
+                }
+                if (!string.IsNullOrEmpty(query))
+                {
+                    filtered = filtered.Where(p => (p.Name != null && p.Name.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                                                || (p.Code != null && p.Code.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0));
+                }
+
+                var list = filtered.ToList();
+
+                productGridPanel.SuspendLayout();
+                productGridPanel.Controls.Clear();
+
+                int scrollbarW = SystemInformation.VerticalScrollBarWidth + 8;
+                int availW = productGridPanel.ClientSize.Width - productGridPanel.Padding.Horizontal - scrollbarW;
+                if (availW < 180) availW = 360;
+                int cols = Math.Max(2, Math.Min(6, availW / 180));
+                int tileW = Math.Max(125, (availW / cols) - 10);
+                int tileH = 105;
+
+                var tiles = new Control[list.Count];
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var p = list[i];
+                    tiles[i] = new ProductTile(p, tileW, tileH, () => {
+                        int qty = quickQty;
+                        AddToCart(p.Id, p.Code, p.Name, p.Category, p.SalesPrice, p.GstRate, qty);
+                        quickQty = 1;
+                        if (lblQtyVal != null) lblQtyVal.Text = "1";
+                    });
+                }
+
+                productGridPanel.Controls.AddRange(tiles);
+                productGridPanel.ResumeLayout(true);
             }
             catch
             {
-                productGridPanel.ResumeLayout();
+                productGridPanel.ResumeLayout(true);
             }
         }
 
-        private Control CreateProductTile(int id, string code, string name, string cat, decimal price, decimal gst)
+        public class ProductTile : Control
         {
-            Panel tile = new Panel
+            public CachedProduct Product { get; private set; }
+            private readonly Action onAddAction;
+            private bool isHovered = false;
+
+            private static readonly Font CatFont = new Font("Segoe UI", 7.5F, FontStyle.Bold);
+            private static readonly Font NameFont = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+            private static readonly Font PriceFont = new Font("Segoe UI", 11F, FontStyle.Bold);
+            private static readonly Font AddFont = new Font("Segoe UI", 8F, FontStyle.Bold);
+
+            private static readonly Color BgColor = Color.FromArgb(24, 33, 47);
+            private static readonly Color HoverBgColor = Color.FromArgb(30, 41, 59);
+            private static readonly Color BorderColor = Color.FromArgb(51, 65, 85);
+            private static readonly Color VegColor = Color.FromArgb(16, 185, 129);
+            private static readonly Color NonVegColor = Color.FromArgb(239, 68, 68);
+
+            public ProductTile(CachedProduct product, int width, int height, Action onAdd)
             {
-                Size = new Size(165, 105),
-                Margin = new Padding(6),
-                BackColor = Color.FromArgb(24, 33, 47),
-                Cursor = Cursors.Hand
-            };
+                Product = product;
+                onAddAction = onAdd;
 
-            bool isHovered = false;
-            bool isVeg = !name.ToLower().Contains("chicken") && !name.ToLower().Contains("non veg") && !name.ToLower().Contains("egg");
-
-            tile.Paint += (s, e) => {
-                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                Rectangle rect = new Rectangle(0, 0, tile.Width - 1, tile.Height - 1);
-                using (GraphicsPath path = Theme.GetRoundedPath(rect, 8))
-                using (Pen p = new Pen(isHovered ? Theme.Accent : Color.FromArgb(51, 65, 85), isHovered ? 2 : 1))
-                {
-                    e.Graphics.DrawPath(p, path);
-                }
-
-                // Draw Veg / Non-Veg symbol at (10, 10)
-                Rectangle iconBox = new Rectangle(10, 10, 14, 14);
-                Color iconCol = isVeg ? Color.FromArgb(16, 185, 129) : Color.FromArgb(239, 68, 68);
-                using (Pen p = new Pen(iconCol, 1.5f))
-                    e.Graphics.DrawRectangle(p, iconBox);
-                using (SolidBrush b = new SolidBrush(iconCol))
-                    e.Graphics.FillEllipse(b, iconBox.X + 3, iconBox.Y + 3, 8, 8);
-            };
-
-            // Category tag label at top right
-            if (!string.IsNullOrEmpty(cat))
-            {
-                Label lblCat = new Label
-                {
-                    Text = cat.ToUpper(),
-                    Location = new Point(32, 10),
-                    Size = new Size(125, 15),
-                    Font = new Font("Segoe UI", 7.5F, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(148, 163, 184),
-                    TextAlign = ContentAlignment.TopRight,
-                    AutoEllipsis = true,
-                    BackColor = Color.Transparent
-                };
-                tile.Controls.Add(lblCat);
+                SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
+                         ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+                Size = new Size(width, height);
+                Margin = new Padding(6);
+                Cursor = Cursors.Hand;
             }
 
-            // Dish Name
-            Label lblName = new Label
+            protected override void OnMouseEnter(EventArgs e)
             {
-                Text = name,
-                Location = new Point(10, 30),
-                Size = new Size(tile.Width - 20, 38),
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(248, 250, 252),
-                AutoEllipsis = true,
-                BackColor = Color.Transparent
-            };
-            tile.Controls.Add(lblName);
+                base.OnMouseEnter(e);
+                isHovered = true;
+                Invalidate();
+            }
 
-            // Price
-            Label lblPrice = new Label
+            protected override void OnMouseLeave(EventArgs e)
             {
-                Text = $"₹{price:0}",
-                Location = new Point(10, tile.Height - 30),
-                Size = new Size(80, 24),
-                Font = new Font("Segoe UI", 11F, FontStyle.Bold),
-                ForeColor = Theme.Accent,
-                TextAlign = ContentAlignment.MiddleLeft,
-                BackColor = Color.Transparent
-            };
-            tile.Controls.Add(lblPrice);
+                base.OnMouseLeave(e);
+                isHovered = false;
+                Invalidate();
+            }
 
-            // Add Button Badge
-            Label lblAdd = new Label
+            protected override void OnMouseUp(MouseEventArgs e)
             {
-                Text = "+ ADD",
-                Location = new Point(tile.Width - 60, tile.Height - 30),
-                Size = new Size(50, 22),
-                Font = new Font("Segoe UI", 8F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(16, 185, 129),
-                BackColor = Color.FromArgb(16, 185, 129, 25),
-                TextAlign = ContentAlignment.MiddleCenter,
-                Cursor = Cursors.Hand
-            };
-            lblAdd.Paint += (s, e) => {
-                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                using (GraphicsPath path = Theme.GetRoundedPath(new Rectangle(0, 0, lblAdd.Width - 1, lblAdd.Height - 1), 4))
-                using (Pen p = new Pen(Color.FromArgb(16, 185, 129), 1))
-                    e.Graphics.DrawPath(p, path);
-            };
-            tile.Controls.Add(lblAdd);
+                base.OnMouseUp(e);
+                if (e.Button == MouseButtons.Left && ClientRectangle.Contains(e.Location))
+                {
+                    onAddAction?.Invoke();
+                }
+            }
 
-            Action addAction = () => {
-                int qty = quickQty;
-                AddToCart(id, code, name, cat, price, gst, qty);
-                quickQty = 1;
-                if (lblQtyVal != null) lblQtyVal.Text = "1";
-            };
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                Graphics g = e.Graphics;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-            tile.MouseEnter += (s, e) => { isHovered = true; tile.Invalidate(); };
-            tile.MouseLeave += (s, e) => { isHovered = false; tile.Invalidate(); };
+                Rectangle rect = new Rectangle(0, 0, Width - 1, Height - 1);
 
-            tile.Click += (s, e) => addAction();
-            lblName.Click += (s, e) => addAction();
-            lblPrice.Click += (s, e) => addAction();
-            lblAdd.Click += (s, e) => addAction();
+                // Background & Border
+                using (GraphicsPath path = Theme.GetRoundedPath(rect, 8))
+                using (SolidBrush bgBrush = new SolidBrush(isHovered ? HoverBgColor : BgColor))
+                using (Pen borderPen = new Pen(isHovered ? Theme.Accent : BorderColor, isHovered ? 2 : 1))
+                {
+                    g.FillPath(bgBrush, path);
+                    g.DrawPath(borderPen, path);
+                }
 
-            return tile;
+                // Veg / Non-Veg icon at (10, 10)
+                Rectangle iconBox = new Rectangle(10, 10, 14, 14);
+                Color iconColor = Product.IsVeg ? VegColor : NonVegColor;
+                using (Pen p = new Pen(iconColor, 1.5f))
+                    g.DrawRectangle(p, iconBox);
+                using (SolidBrush b = new SolidBrush(iconColor))
+                    g.FillEllipse(b, iconBox.X + 3, iconBox.Y + 3, 8, 8);
+
+                // Category tag (top right)
+                if (!string.IsNullOrEmpty(Product.Category))
+                {
+                    Rectangle catRect = new Rectangle(30, 8, Width - 40, 16);
+                    TextRenderer.DrawText(g, Product.Category.ToUpper(), CatFont, catRect, Color.FromArgb(148, 163, 184),
+                        TextFormatFlags.Right | TextFormatFlags.Top | TextFormatFlags.EndEllipsis);
+                }
+
+                // Dish Name
+                Rectangle nameRect = new Rectangle(10, 28, Width - 20, 42);
+                TextRenderer.DrawText(g, Product.Name, NameFont, nameRect, Color.FromArgb(248, 250, 252),
+                    TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
+
+                // Price (bottom left)
+                string priceText = $"₹{Product.SalesPrice:0}";
+                Rectangle priceRect = new Rectangle(10, Height - 30, Width / 2, 24);
+                TextRenderer.DrawText(g, priceText, PriceFont, priceRect, Theme.Accent,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+
+                // "+ ADD" badge (bottom right)
+                int addW = 54;
+                int addH = 22;
+                Rectangle addRect = new Rectangle(Width - addW - 10, Height - addH - 7, addW, addH);
+                using (GraphicsPath addPath = Theme.GetRoundedPath(addRect, 4))
+                using (SolidBrush addBg = new SolidBrush(Color.FromArgb(25, 16, 185, 129)))
+                using (Pen addPen = new Pen(Color.FromArgb(16, 185, 129), 1))
+                {
+                    g.FillPath(addBg, addPath);
+                    g.DrawPath(addPen, addPath);
+                }
+                TextRenderer.DrawText(g, "+ ADD", AddFont, addRect, Color.FromArgb(16, 185, 129),
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            }
         }
 
         private void AddToCart(int id, string code, string name, string cat, decimal price, decimal gst, int qty)
@@ -2026,10 +2342,13 @@ namespace MeroDokan
                     totalQty += item.Quantity;
                     totalGross += item.LineTotal;
 
+                    bool hasInstruction = !string.IsNullOrEmpty(item.SpecialInstructions);
+                    int rowHeight = hasInstruction ? 62 : 44;
+
                     Panel itemRow = new Panel
                     {
                         Width = panelW,
-                        Height = 44,
+                        Height = rowHeight,
                         BackColor = Color.FromArgb(24, 33, 47),
                         Margin = new Padding(0, 0, 0, 2)
                     };
@@ -2043,8 +2362,8 @@ namespace MeroDokan
                     Button btnDel = new Button
                     {
                         Text = "🗑️",
-                        Size = new Size(26, 26),
-                        Location = new Point(4, 8),
+                        Size = new Size(24, 24),
+                        Location = new Point(4, 9),
                         FlatStyle = FlatStyle.Flat,
                         BackColor = Color.Transparent,
                         ForeColor = Theme.Danger,
@@ -2054,16 +2373,35 @@ namespace MeroDokan
                     btnDel.Click += (s, e) => RemoveOrVoidItem(item);
                     itemRow.Controls.Add(btnDel);
 
+                    // Parcel / Special Instruction Icon Button
+                    Button btnParcel = new Button
+                    {
+                        Text = hasInstruction ? "🛍️" : "🏷️",
+                        Size = new Size(26, 24),
+                        Location = new Point(30, 9),
+                        FlatStyle = FlatStyle.Flat,
+                        BackColor = hasInstruction ? Color.FromArgb(60, 50, 20) : Color.Transparent,
+                        ForeColor = hasInstruction ? Color.FromArgb(251, 191, 36) : Color.FromArgb(148, 163, 184),
+                        Font = new Font("Segoe UI Emoji", 8.5F),
+                        Cursor = Cursors.Hand
+                    };
+                    btnParcel.FlatAppearance.BorderSize = hasInstruction ? 1 : 0;
+                    btnParcel.FlatAppearance.BorderColor = Color.FromArgb(251, 191, 36);
+                    btnParcel.Click += (s, e) => ShowItemParcelMenu(btnParcel, item);
+                    itemRow.Controls.Add(btnParcel);
+
                     // Name
                     Label lblName = new Label
                     {
                         Text = item.ItemName,
-                        Location = new Point(34, 11),
-                        Size = new Size(panelW - 170, 22),
+                        Location = new Point(58, 11),
+                        Size = new Size(panelW - 195, 20),
                         Font = new Font("Segoe UI", 9F, FontStyle.Bold),
                         ForeColor = Color.White,
-                        AutoEllipsis = true
+                        AutoEllipsis = true,
+                        Cursor = Cursors.Hand
                     };
+                    lblName.Click += (s, e) => ShowItemParcelMenu(btnParcel, item);
                     itemRow.Controls.Add(lblName);
 
                     // Qty Controls
@@ -2090,12 +2428,28 @@ namespace MeroDokan
                     };
                     itemRow.Controls.Add(lblAmt);
 
+                    if (hasInstruction)
+                    {
+                        Label lblInstruction = new Label
+                        {
+                            Text = $"🛍️ {item.SpecialInstructions}",
+                            Location = new Point(58, 36),
+                            Size = new Size(panelW - 150, 18),
+                            Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+                            ForeColor = Color.FromArgb(251, 191, 36),
+                            AutoEllipsis = true,
+                            Cursor = Cursors.Hand
+                        };
+                        lblInstruction.Click += (s, e) => ShowItemParcelMenu(btnParcel, item);
+                        itemRow.Controls.Add(lblInstruction);
+                    }
+
                     kotItemsContainer.Controls.Add(itemRow);
                 }
             }
 
-            // Add Takeaway Packing Charges if applicable
-            if (ActiveOrderType == "TAKEAWAY" && currentPackingCharge > 0)
+            // Add Packaging Charges if applicable (for both Takeaway and Dining leftover/parcel)
+            if (currentPackingCharge > 0)
             {
                 totalGross += currentPackingCharge;
                 totalQty += 1;
@@ -2118,10 +2472,10 @@ namespace MeroDokan
                 };
                 packRow.Controls.Add(lblPackName);
 
-                decimal packTaxable = Math.Round(currentPackingCharge / 1.05m, 2);
+                // Zero tax on packaging: display full packaging fee directly without tax deduction
                 Label lblPackAmt = new Label
                 {
-                    Text = $"₹{packTaxable:0.00}",
+                    Text = $"₹{currentPackingCharge:0.00}",
                     Location = new Point(panelW - 90, 9),
                     Size = new Size(85, 20),
                     TextAlign = ContentAlignment.MiddleRight,
@@ -2519,9 +2873,8 @@ namespace MeroDokan
                     return;
                 }
 
-                decimal totalGross = cartItems.Sum(x => x.LineTotal);
-                if (ActiveOrderType == "TAKEAWAY") totalGross += currentPackingCharge;
-                decimal netRunning = Math.Max(0, totalGross - currentDiscountAmount);
+                decimal foodGross = cartItems.Sum(x => x.LineTotal);
+                decimal netRunning = Math.Max(0, foodGross - currentDiscountAmount) + currentPackingCharge;
 
                 string kots = string.Join(",", cartItems.Where(x => x.KotNumber > 0).Select(x => x.KotNumber.ToString()).Distinct());
                 string steward = cmbSteward.SelectedItem?.ToString() ?? "Direct Counter";
@@ -2559,18 +2912,20 @@ namespace MeroDokan
                 return;
             }
 
-            decimal totalGross = cartItems.Sum(x => x.LineTotal);
-            if (ActiveOrderType == "TAKEAWAY") totalGross += currentPackingCharge;
+            decimal foodGross = cartItems.Sum(x => x.LineTotal);
+            decimal discountVal = Math.Min(foodGross, currentDiscountAmount);
+            decimal discountedFood = Math.Max(0, foodGross - discountVal);
 
-            decimal discountVal = Math.Min(totalGross, currentDiscountAmount);
-            decimal discountedGross = Math.Max(0, totalGross - discountVal);
-
-            decimal taxableSubTotal = Math.Round(discountedGross / 1.05m, 2);
-            decimal totalGst = discountedGross - taxableSubTotal;
+            // Food tax is calculated on food gross after discount
+            decimal taxableFood = Math.Round(discountedFood / 1.05m, 2);
+            decimal totalGst = discountedFood - taxableFood;
             decimal cgst = Math.Round(totalGst / 2.0m, 2);
             decimal sgst = totalGst - cgst;
-            decimal grandTotal = Math.Round(discountedGross, 0);
-            decimal roundOff = grandTotal - discountedGross;
+
+            // Zero tax on packaging charges:
+            decimal totalTaxable = taxableFood + currentPackingCharge;
+            decimal grandTotal = Math.Round(discountedFood + currentPackingCharge, 0);
+            decimal roundOff = grandTotal - (discountedFood + currentPackingCharge);
 
             string defaultMethod = selectedPaymentMethod;
             if (defaultMethod == "UPI") defaultMethod = "UPI / QR Pay";
@@ -2602,7 +2957,7 @@ namespace MeroDokan
                                     decimal cashAmt = (dlg.PaymentMethod == "Cash") ? paidAmt : (dlg.PaymentMethod == "Split" ? dlg.CashAmount : 0m);
                                     decimal onlineAmt = (dlg.PaymentMethod == "Card" || dlg.PaymentMethod == "UPI / QR Pay" || dlg.PaymentMethod == "Online") ? paidAmt : (dlg.PaymentMethod == "Split" ? dlg.OnlineAmount : 0m);
 
-                                    // 2. Insert Sales Record
+                                    // 2. Insert Sales Record (Packaging charges have 0% GST)
                                     string insSaleSql = @"
                                         INSERT INTO Sales (
                                             InvoiceNumber, SaleDate, SubTotal, Discount, Tax, GrandTotal, AmountPaid, DueAmount, PaymentMethod,
@@ -2618,7 +2973,7 @@ namespace MeroDokan
                                     using (SqlCommand cmd = new SqlCommand(insSaleSql, conn, trans))
                                     {
                                         cmd.Parameters.AddWithValue("@inv", invNumber);
-                                        cmd.Parameters.AddWithValue("@sub", taxableSubTotal);
+                                        cmd.Parameters.AddWithValue("@sub", totalTaxable);
                                         cmd.Parameters.AddWithValue("@disc", discountVal);
                                         cmd.Parameters.AddWithValue("@tax", totalGst);
                                         cmd.Parameters.AddWithValue("@grand", grandTotal);
@@ -2633,7 +2988,7 @@ namespace MeroDokan
                                         cmd.Parameters.AddWithValue("@packing", currentPackingCharge);
                                         cmd.Parameters.AddWithValue("@stwd", steward);
                                         cmd.Parameters.AddWithValue("@roundOff", roundOff);
-                                        cmd.Parameters.AddWithValue("@taxable", taxableSubTotal);
+                                        cmd.Parameters.AddWithValue("@taxable", totalTaxable);
                                         cmd.Parameters.AddWithValue("@cgst", cgst);
                                         cmd.Parameters.AddWithValue("@sgst", sgst);
                                         saleId = Convert.ToInt32(cmd.ExecuteScalar());
@@ -2643,8 +2998,8 @@ namespace MeroDokan
                                     foreach (var it in cartItems)
                                     {
                                         string insDetSql = @"
-                                            INSERT INTO SaleDetails (SaleId, ItemType, ProductId, Quantity, UnitPrice, Total, TaxableAmount, CGSTAmount, SGSTAmount, GSTRate)
-                                            VALUES (@saleId, 'Product', @pid, @qty, @price, @total, @taxable, @cgst, @sgst, 5.00)";
+                                            INSERT INTO SaleDetails (SaleId, ItemType, ProductId, Quantity, UnitPrice, Total, TaxableAmount, CGSTAmount, SGSTAmount, GSTRate, Instructions)
+                                            VALUES (@saleId, 'Product', @pid, @qty, @price, @total, @taxable, @cgst, @sgst, 5.00, @ins)";
 
                                         using (SqlCommand cmd = new SqlCommand(insDetSql, conn, trans))
                                         {
@@ -2656,25 +3011,22 @@ namespace MeroDokan
                                             cmd.Parameters.AddWithValue("@taxable", it.LineTaxable);
                                             cmd.Parameters.AddWithValue("@cgst", Math.Round(it.LineTax / 2.0m, 2));
                                             cmd.Parameters.AddWithValue("@sgst", it.LineTax - Math.Round(it.LineTax / 2.0m, 2));
+                                            cmd.Parameters.AddWithValue("@ins", (object)it.SpecialInstructions ?? DBNull.Value);
                                             cmd.ExecuteNonQuery();
                                         }
                                     }
 
-                                    // 4. Add Packing Charges as detail line if present
-                                    if (ActiveOrderType == "TAKEAWAY" && currentPackingCharge > 0)
+                                    // 4. Add Packing Charges as detail line if present (ZERO TAX)
+                                    if (currentPackingCharge > 0)
                                     {
-                                        decimal packTaxable = Math.Round(currentPackingCharge / 1.05m, 2);
-                                        decimal packTax = currentPackingCharge - packTaxable;
                                         string insPackDet = @"
-                                            INSERT INTO SaleDetails (SaleId, ItemType, ProductId, Quantity, UnitPrice, Total, TaxableAmount, CGSTAmount, SGSTAmount, GSTRate)
-                                            VALUES (@saleId, 'Product', NULL, 1, @price, @price, @taxable, @cgst, @sgst, 5.00)";
+                                            INSERT INTO SaleDetails (SaleId, ItemType, ProductId, Quantity, UnitPrice, Total, TaxableAmount, CGSTAmount, SGSTAmount, GSTRate, Instructions)
+                                            VALUES (@saleId, 'Packaging', NULL, 1, @price, @price, @taxable, 0.00, 0.00, 0.00, 'Packaging Charges')";
                                         using (SqlCommand cmd = new SqlCommand(insPackDet, conn, trans))
                                         {
                                             cmd.Parameters.AddWithValue("@saleId", saleId);
                                             cmd.Parameters.AddWithValue("@price", currentPackingCharge);
-                                            cmd.Parameters.AddWithValue("@taxable", packTaxable);
-                                            cmd.Parameters.AddWithValue("@cgst", Math.Round(packTax / 2.0m, 2));
-                                            cmd.Parameters.AddWithValue("@sgst", packTax - Math.Round(packTax / 2.0m, 2));
+                                            cmd.Parameters.AddWithValue("@taxable", currentPackingCharge);
                                             cmd.ExecuteNonQuery();
                                         }
                                     }

@@ -7,7 +7,7 @@ using System.Data.SqlClient;
 
 namespace MeroDokan
 {
-    public class KotManagerControl : UserControl
+    public class KotManagerControl : UserControl, IFocusableControl
     {
         private Panel topPanel;
         private FlowLayoutPanel modeTabsPanel;
@@ -63,6 +63,17 @@ namespace MeroDokan
                 if (currentTabIndex == 0) LoadActiveKdsCards();
             };
             refreshTimer.Start();
+
+            this.VisibleChanged += (s, e) => { if (this.Visible) FocusDefaultControl(); };
+        }
+
+        public void FocusDefaultControl()
+        {
+            try
+            {
+                btnTabLive?.Focus();
+            }
+            catch { }
         }
 
         protected override void Dispose(bool disposing)

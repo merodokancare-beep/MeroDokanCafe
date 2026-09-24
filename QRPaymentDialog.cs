@@ -18,6 +18,7 @@ namespace MeroDokan
         public QRPaymentDialog(string upiId, string payeeName, decimal amount, string invoiceNumber)
         {
             InitializeComponent(upiId, payeeName, amount, invoiceNumber);
+            this.Shown += (s, e) => { btnConfirm?.Focus(); };
         }
 
         private void InitializeComponent(string upiId, string payeeName, decimal amount, string invoiceNumber)

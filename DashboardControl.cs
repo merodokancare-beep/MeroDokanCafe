@@ -7,7 +7,7 @@ using System.Data.SqlClient;
 
 namespace MeroDokan
 {
-    public class DashboardControl : UserControl
+    public class DashboardControl : UserControl, IFocusableControl
     {
         private Panel cardFoodRevenue;
         private Panel cardBeverageRevenue;
@@ -35,6 +35,16 @@ namespace MeroDokan
         {
             InitializeComponent();
             LoadDashboardData();
+            this.VisibleChanged += (s, e) => { if (this.Visible) FocusDefaultControl(); };
+        }
+
+        public void FocusDefaultControl()
+        {
+            try
+            {
+                gridLiveOrders?.Focus();
+            }
+            catch { }
         }
 
         private void InitializeComponent()
@@ -243,12 +253,12 @@ namespace MeroDokan
             if (gridLiveOrders.Columns[e.ColumnIndex].Name == "Status" && e.Value != null)
             {
                 string status = e.Value.ToString();
-                if (status == "Active" || status == "Running")
+                if (status == "Active" || status == "Running" || status == "Served" || status == "Printed")
                 {
                     e.CellStyle.ForeColor = Color.FromArgb(167, 139, 250); // Violet
                     e.CellStyle.Font = Theme.BoldFont;
                 }
-                else if (status == "Settled" || status == "Completed")
+                else if (status == "Settled" || status == "Completed" || status == "Billed")
                 {
                     e.CellStyle.ForeColor = Theme.Success;
                     e.CellStyle.Font = Theme.BoldFont;
@@ -302,8 +312,9 @@ namespace MeroDokan
                     using (SqlCommand cmd = new SqlCommand(@"
                         SELECT 
                             ISNULL(COUNT(*), 0) AS TotalKots,
-                            ISNULL(SUM(CASE WHEN Status = 'Active' THEN 1 ELSE 0 END), 0) AS ActiveKots,
-                            ISNULL(SUM(CASE WHEN Status = 'Settled' THEN 1 ELSE 0 END), 0) AS SettledKots
+                            ISNULL(SUM(CASE WHEN Status IN ('Active', 'Served', 'Printed', 'Running') THEN 1 ELSE 0 END), 0) AS ActiveKots,
+                            ISNULL(SUM(CASE WHEN Status IN ('Billed', 'Settled', 'Completed') THEN 1 ELSE 0 END), 0) AS SettledKots,
+                            ISNULL(SUM(CASE WHEN Status = 'Voided' OR IsVoided = 1 THEN 1 ELSE 0 END), 0) AS VoidedKots
                         FROM KOTMaster 
                         WHERE CAST(CreatedAt AS DATE) = CAST(GETDATE() AS DATE)", conn))
                     {
@@ -311,12 +322,24 @@ namespace MeroDokan
                         {
                             if (r.Read())
                             {
+                                int activeKots = Convert.ToInt32(r["ActiveKots"]);
+                                int settledKots = Convert.ToInt32(r["SettledKots"]);
+                                int voidedKots = Convert.ToInt32(r["VoidedKots"]);
                                 todayKotCount = Convert.ToInt32(r["TotalKots"]);
-                                activeKotCount = Convert.ToInt32(r["ActiveKots"]);
-                                settledTodayCount = Convert.ToInt32(r["SettledKots"]);
+                                activeKotCount = activeKots;
+                                settledTodayCount = settledKots;
 
-                                lblOrdersVal.Text = $"{todayKotCount} Orders Today";
-                                lblOrdersSub.Text = $"{activeKotCount} Active KOTs • {settledTodayCount} Settled Orders";
+                                lblOrdersVal.Text = todayKotCount == 1 ? "1 Order Today" : $"{todayKotCount} Orders Today";
+                                string activeText = activeKots == 1 ? "1 Active KOT" : $"{activeKots} Active KOTs";
+                                string settledText = settledKots == 1 ? "1 Settled Order" : $"{settledKots} Settled Orders";
+                                if (voidedKots > 0)
+                                {
+                                    lblOrdersSub.Text = $"{activeText} • {settledText} • {voidedKots} Voided";
+                                }
+                                else
+                                {
+                                    lblOrdersSub.Text = $"{activeText} • {settledText}";
+                                }
                             }
                         }
                     }
@@ -337,10 +360,14 @@ namespace MeroDokan
                             k.OrderType AS [Type],
                             ISNULL(k.Steward, 'Cashier') AS [Steward],
                             k.Status AS [Status],
-                            CONVERT(VARCHAR(5), k.CreatedAt, 108) AS [Time]
+                            CASE 
+                                WHEN CAST(k.CreatedAt AS DATE) = CAST(GETDATE() AS DATE) 
+                                THEN CONVERT(VARCHAR(5), k.CreatedAt, 108)
+                                ELSE FORMAT(k.CreatedAt, 'dd-MMM HH:mm')
+                            END AS [Time]
                         FROM KOTMaster k
                         ORDER BY 
-                            CASE k.Status WHEN 'Active' THEN 1 ELSE 2 END,
+                            CASE WHEN k.Status IN ('Active', 'Served', 'Printed', 'Running') THEN 1 ELSE 2 END,
                             k.Id DESC", conn))
                     {
                         using (SqlDataAdapter da = new SqlDataAdapter(cmd))
@@ -457,7 +484,8 @@ namespace MeroDokan
             g.DrawString($"• Food / Kitchen Share: {foodPct * 100:0.0}% of total turnover", fRegular, Brushes.LightGray, 28, boxY + 62);
             g.DrawString($"• Beverages / Counter Share: {bevPct * 100:0.0}% of total turnover", fRegular, Brushes.LightGray, 28, boxY + 86);
             g.DrawString($"• Active Crew & Stewards: {activeStaffCount} Team members on duty", fRegular, Brushes.LightGray, 28, boxY + 110);
-            g.DrawString($"• Today's Orders / KOTs: {todayKotCount} Orders placed", fRegular, Brushes.LightGray, 28, boxY + 134);
+            string orderPlural = todayKotCount == 1 ? "1 Order placed" : $"{todayKotCount} Orders placed";
+            g.DrawString($"• Today's Orders / KOTs: {orderPlural}", fRegular, Brushes.LightGray, 28, boxY + 134);
         }
     }
 }

@@ -24,6 +24,13 @@ namespace MeroDokan
             _initialSourceTable = sourceTable;
             InitializeComponent();
             LoadTables();
+
+            this.Shown += (s, e) => {
+                if (!string.IsNullOrEmpty(_initialSourceTable))
+                    cmbTargetTable?.Focus();
+                else
+                    cmbSourceTable?.Focus();
+            };
         }
 
         private void InitializeComponent()

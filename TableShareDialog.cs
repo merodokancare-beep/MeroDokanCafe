@@ -37,6 +37,10 @@ namespace MeroDokan
             _preselectedTable = initialTable;
             InitializeComponent();
             LoadTables();
+
+            this.Shown += (s, e) => {
+                cmbTable?.Focus();
+            };
         }
 
         private void InitializeComponent()

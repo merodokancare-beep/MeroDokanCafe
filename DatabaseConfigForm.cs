@@ -30,6 +30,11 @@ namespace MeroDokan
             InitializeComponent();
             LoadCurrentSettings();
             UpdateAuthFieldsVisibility();
+
+            this.Shown += (s, e) => {
+                txtServer?.Focus();
+                txtServer?.SelectAll();
+            };
         }
 
         private void InitializeComponent()
